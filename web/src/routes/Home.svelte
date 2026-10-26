@@ -98,7 +98,7 @@
               <a href="/doc/{d.id}">
                 <Icon name="file" />
                 <span class="grow">
-                  <span class="r-title">{d.title || 'Untitled'}{#if d.sender} <span class="muted">· {d.sender}</span>{/if}</span>
+                  <span class="r-title">{d.title || 'Untitled'}{#if d.sender}{' '}<span class="muted">· {d.sender}</span>{/if}</span>
                   <span class="mono muted path">{d.path}</span>
                 </span>
               </a>

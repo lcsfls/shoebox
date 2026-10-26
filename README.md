@@ -4,7 +4,16 @@
 
 No Redis, no Celery, no PostgreSQL: one Go binary with a SQLite index, Tesseract for the text, and a mobile-first web app you can install on your phone's home screen.
 
-<!-- screenshots -->
+<p><img src="docs/phone.png" alt="Shoebox on a phone: home, straightening a photographed letter, search results, a document"></p>
+
+<p><img src="docs/review.png" alt="Review on the desktop: the recognized date, amount and sender, ready to file"></p>
+
+<details>
+<summary>More screens</summary>
+
+<p><img src="docs/archive-dark.png" alt="The archive in dark mode, with folders, tags and senders"></p>
+<p><img src="docs/storage.png" alt="Storage settings: the archive folder, the folder watcher and how to mount a NAS share"></p>
+</details>
 
 ## What it does
 
