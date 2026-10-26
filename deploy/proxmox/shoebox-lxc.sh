@@ -82,8 +82,14 @@ esac
 # --- template ---
 say "Looking for a Debian template"
 pveam update >/dev/null 2>&1 || true
-TEMPLATE_NAME="$(pveam available --section system 2>/dev/null | awk '{print $2}' | grep -E '^debian-1[3]-standard' | sort -V | tail -n1)"
-[ -n "$TEMPLATE_NAME" ] || TEMPLATE_NAME="$(pveam available --section system 2>/dev/null | awk '{print $2}' | grep -E '^debian-12-standard' | sort -V | tail -n1)"
+# only templates for this host's CPU (the list also has arm64 ones)
+ARCH="$(dpkg --print-architecture)"
+debian_template() {
+  pveam available --section system 2>/dev/null | awk '{print $2}' \
+    | grep -E "^debian-$1-standard_.*_${ARCH}\.tar" | sort -V | tail -n1
+}
+TEMPLATE_NAME="$(debian_template 13)"
+[ -n "$TEMPLATE_NAME" ] || TEMPLATE_NAME="$(debian_template 12)"
 [ -n "$TEMPLATE_NAME" ] || die "No Debian template found (pveam available)."
 TEMPLATE_STORAGE="$(pick_storage vztmpl "Where should the container template be stored?")"
 if ! pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep -q "$TEMPLATE_NAME"; then
@@ -104,7 +110,7 @@ yesno "Create this container?\n\n$SUMMARY" || exit 1
 say "Creating container $CTID"
 args=(
   --hostname "$HOST" --cores "$CORES" --memory "$RAM" --swap 512
-  --rootfs "$ROOTFS_STORAGE:$DISK" --net0 "$NET"
+  --rootfs "$ROOTFS_STORAGE:$DISK" --net0 "$NET" --arch "$ARCH"
   --unprivileged 1 --features nesting=1 --onboot 1 --ostype debian --tags shoebox
 )
 [ -n "$MP0" ] && args+=(--mp0 "$MP0")
@@ -122,7 +128,11 @@ if [ -n "$HOSTDIR" ]; then
 fi
 
 say "Starting the container"
-pct start "$CTID"
+if ! pct start "$CTID"; then
+  echo "    Details: pct start $CTID --debug 2>&1 | grep -E 'ERROR|WARN'" >&2
+  echo "    Remove the container to try again: pct destroy $CTID" >&2
+  die "Container $CTID was created but doesn't start."
+fi
 for _ in $(seq 1 30); do
   if pct exec "$CTID" -- getent hosts github.com >/dev/null 2>&1; then break; fi
   sleep 2
