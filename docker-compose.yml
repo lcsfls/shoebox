@@ -1,0 +1,23 @@
+services:
+  shoebox:
+    build: .
+    container_name: shoebox
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - data:/data          # database and caches: keep on a local disk
+      - archive:/archive    # your PDFs: a local folder or a NAS share (see below)
+    # environment:
+    #   SB_TRUST_PROXY: "true"   # behind a reverse proxy
+
+volumes:
+  data:
+  archive:
+  # The archive on a NAS via NFS instead:
+  # archive:
+  #   driver: local
+  #   driver_opts:
+  #     type: nfs
+  #     o: addr=nas.local,nfsvers=4.1,rw
+  #     device: ":/volume1/documents"

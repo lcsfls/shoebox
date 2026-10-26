@@ -1,0 +1,7 @@
+/data/
+/shoebox
+web/node_modules/
+web/dist/*
+!web/dist/README.txt
+e2e/node_modules/
+e2e/out/

@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: OCR tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng poppler-utils qpdf libimage-exiftool-perl
+
+      - name: Web app
+        working-directory: web
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+          npm test
+          npm run build
+
+      - name: Go modules
+        run: |
+          [ -f go.sum ] || go mod tidy
+          go mod verify
+
+      - name: Format and vet
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+
+      - name: Go tests
+        env:
+          SB_TEST_LANG: deu+eng
+        run: go test -count=1 ./...
+
+      - name: Build
+        run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=ci-${GITHUB_SHA::7}" -o shoebox .
+
+      - name: Lock files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lockfiles
+          if-no-files-found: ignore
+          path: |
+            go.sum
+            web/package-lock.json
+
+      - name: End-to-end in a browser
+        run: |
+          mkdir -p /tmp/sb
+          tesseract testdata/letter2.png /tmp/sb/letter2 -l deu+eng pdf
+          SB_DATA=/tmp/sb/data SB_ARCHIVE=/tmp/sb/archive SB_LISTEN=127.0.0.1:8080 ./shoebox > /tmp/sb/server.log 2>&1 &
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8080/healthz && break; sleep 1; done
+          CODE=$(grep -o 'setup code: [A-F0-9]*' /tmp/sb/server.log | awk '{print $3}')
+          cd e2e
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+          npx playwright install --with-deps chromium
+          SB_URL=http://127.0.0.1:8080 SB_SETUP_CODE="$CODE" SB_ARCHIVE=/tmp/sb/archive \
+            SB_LETTER_PNG="$GITHUB_WORKSPACE/testdata/letter.png" SB_LETTER_PDF=/tmp/sb/letter2.pdf node e2e.mjs
+
+      - name: Server log
+        if: always()
+        run: cat /tmp/sb/server.log || true
+
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: e2e/out
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build --build-arg VERSION=ci -t shoebox:ci .
+      - name: Smoke test
+        run: |
+          docker run -d --name sb -p 8081:8080 shoebox:ci
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8081/healthz && break; sleep 1; done
+          curl -fs http://127.0.0.1:8081/ | grep -q '<div id="app">'
+          docker exec sb tesseract --list-langs | grep -q deu
+          docker logs sb 2>&1 | grep -q 'setup code'

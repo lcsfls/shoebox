@@ -1,0 +1,13 @@
+{
+  "name": "shoebox-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "svelte": "^5.40.0"
+  }
+}
