@@ -18,7 +18,8 @@ type Facts struct {
 	Title       string
 	Tags        []string
 	Rule        string
-	Matched     bool // a rule or a known sender matched
+	Matched     bool     // a rule or a known sender matched
+	Learned     []string // tags suggested by similar filed documents
 }
 
 var months = map[string]int{
@@ -39,7 +40,7 @@ var months = map[string]int{
 var (
 	reDateDot   = regexp.MustCompile(`\b(\d{1,2})\s?[./]\s?(\d{1,2})\s?[./]\s?((?:19|20)?\d{2})\b`)
 	reDateISO   = regexp.MustCompile(`\b((?:19|20)\d{2})-(\d{2})-(\d{2})\b`)
-	reDateWords = regexp.MustCompile(`(?i)\b(\d{1,2})\.?\s+([a-zäö]{3,9})\.?\s+((?:19|20)\d{2})\b`)
+	reDateWords = regexp.MustCompile(`(?i)\b(\d{1,2})(?:\.\s*|\s+)([a-zäö]{3,9})\.?\s*((?:19|20)\d{2})\b`)
 	reDateEN    = regexp.MustCompile(`(?i)\b([a-z]{3,9})\.?\s+(\d{1,2}),?\s+((?:19|20)\d{2})\b`)
 	reDateCue   = regexp.MustCompile(`(?i)(rechnungsdatum|belegdatum|datum|date|vom|ausgestellt|invoice date|bescheid vom|stand)`)
 )
@@ -171,7 +172,16 @@ var docKinds = []struct{ word, title string }{
 	{"bestätigung", "Bestätigung"}, {"lieferschein", "Lieferschein"}, {"abrechnung", "Abrechnung"}, {"zeugnis", "Zeugnis"},
 }
 
+var reSubject = regexp.MustCompile(`(?im)^\s*(?:betreff|betr\.|subject|re|unser zeichen ihr schreiben)\s*:\s*(.{4,90})$`)
+
+// guessTitle uses the subject line ("Betreff: …") when the letter has one,
+// otherwise the kind of document named first ("Rechnung", "Bescheid" …).
 func guessTitle(text string) string {
+	if m := reSubject.FindStringSubmatch(firstChars(text, 4000)); m != nil {
+		if t := strings.TrimSpace(strings.Trim(m[1], " .:-")); hasLetters(t) {
+			return clean(t, 120)
+		}
+	}
 	head := strings.ToLower(text)
 	if len(head) > 3000 {
 		head = head[:3000]
@@ -208,6 +218,32 @@ func guessSender(text string) string {
 		}
 	}
 	return ""
+}
+
+func firstChars(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
+// hasLetters is false for titles like "2026-03-01" or "Scan_0001".
+func hasLetters(s string) bool {
+	n := 0
+	for _, r := range s {
+		if unicode.IsLetter(r) {
+			n++
+		}
+	}
+	return n >= 3 && !reScanName.MatchString(s)
+}
+
+var reScanName = regexp.MustCompile(`(?i)^(scan|img|image|dok|doc|document|dokument|file|datei|pxl|dsc|cam|bild|untitled|unbenannt)[\s_-]*\d*$`)
+
+// plausibleDate: a real date, not before 1980 and not more than a year ahead.
+func plausibleDate(s string, nowT time.Time) bool {
+	t, err := time.Parse("2006-01-02", s)
+	return err == nil && t.Year() >= 1980 && !t.After(nowT.AddDate(1, 0, 0))
 }
 
 // knownSender finds a sender that already exists and is named near the top.
@@ -291,6 +327,18 @@ func (a *App) analyze(text string) Facts {
 		if s := knownSender(text, a.senderNames()); s != "" {
 			f.Sender = s
 			f.Matched = true
+		}
+	}
+	if a.settings().Learn {
+		l := a.learn(text, 0)
+		for _, t := range l.Tags {
+			if !containsFold(f.Tags, t) {
+				f.Tags = append(f.Tags, t)
+				f.Learned = append(f.Learned, t)
+			}
+		}
+		if f.Sender == "" {
+			f.Sender = l.Sender
 		}
 	}
 	if f.Sender == "" {

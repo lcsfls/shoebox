@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from './lib/api.js';
-  import { user, counts, toasts } from './lib/stores.js';
+  import { user, counts, toasts, can } from './lib/stores.js';
   import { route } from './lib/router.js';
   import Icon from './components/Icon.svelte';
   import Login from './routes/Login.svelte';
@@ -11,6 +11,7 @@
   import Archive from './routes/Archive.svelte';
   import DocView from './routes/DocView.svelte';
   import Settings from './routes/Settings.svelte';
+  import Stats from './routes/Stats.svelte';
 
   let needsSetup = $state(false);
   let version = $state('');
@@ -62,12 +63,16 @@
   let path = $derived($route.path);
   let parts = $derived(path.split('/').filter(Boolean));
   let section = $derived(parts[0] || '');
-  const nav = [
-    { href: '/', label: 'Home', icon: 'home', key: '' },
-    { href: '/review', label: 'Review', icon: 'inbox', key: 'review' },
-    { href: '/archive', label: 'Archive', icon: 'folder', key: 'archive' },
-    { href: '/settings', label: 'Settings', icon: 'settings', key: 'settings' },
+  const allNav = [
+    { href: '/', label: 'Home', icon: 'home', key: '', role: 'viewer' },
+    { href: '/review', label: 'Review', icon: 'inbox', key: 'review', role: 'member' },
+    { href: '/archive', label: 'Archive', icon: 'folder', key: 'archive', role: 'viewer' },
+    { href: '/stats', label: 'Statistics', icon: 'chart', key: 'stats', role: 'viewer', wide: true },
+    { href: '/settings', label: 'Settings', icon: 'settings', key: 'settings', role: 'viewer' },
   ];
+  let nav = $derived(allNav.filter((n) => can($user, n.role)));
+  // the phone's tab bar keeps four tabs; statistics is reached from Settings there
+  let tabNav = $derived(nav.filter((n) => !n.wide));
   let fullscreen = $derived(section === 'scan');
 </script>
 
@@ -82,9 +87,11 @@
         <a class="brand" href="/" aria-label="Shoebox home">
           <Icon name="box" size={26} /><span>shoebox</span>
         </a>
-        <div class="side-actions">
-          <a class="btn primary" href="/scan"><Icon name="scan" />Scan</a>
-        </div>
+        {#if can($user, 'member')}
+          <div class="side-actions">
+            <a class="btn primary" href="/scan"><Icon name="scan" />Scan</a>
+          </div>
+        {/if}
         <nav aria-label="Main">
           {#each nav as n (n.key)}
             <a href={n.href} class="navlink" aria-current={section === n.key ? 'page' : undefined}>
@@ -114,6 +121,8 @@
         <Archive />
       {:else if section === 'doc' && parts[1]}
         <DocView id={Number(parts[1])} />
+      {:else if section === 'stats'}
+        <Stats />
       {:else if section === 'settings'}
         <Settings tab={parts[1] || 'general'} {version} {cycleTheme} {theme} />
       {:else}
@@ -123,7 +132,7 @@
 
     {#if !fullscreen}
       <nav class="tabbar" aria-label="Main">
-        {#each nav as n (n.key)}
+        {#each tabNav as n (n.key)}
           <a href={n.href} aria-current={section === n.key ? 'page' : undefined}>
             <span class="tabicon"><Icon name={n.icon} size={22} />{#if n.key === 'review' && $counts.inbox}<span class="badge">{$counts.inbox}</span>{/if}</span>
             {n.label}

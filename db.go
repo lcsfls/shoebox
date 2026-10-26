@@ -76,9 +76,61 @@ CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(
 	tokenize = 'unicode61 remove_diacritics 2');
 `
 
+// migrations run once each, in order, after the base schema; PRAGMA
+// user_version remembers how many have run.
+var migrations = []string{
+	// 1: roles, passkeys, API tokens, who added a document, OCR time
+	`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';
+	ALTER TABLE users ADD COLUMN handle BLOB;
+	ALTER TABLE docs ADD COLUMN added_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+	ALTER TABLE docs ADD COLUMN ocr_ms INTEGER NOT NULL DEFAULT 0;
+	CREATE INDEX IF NOT EXISTS docs_created ON docs(created_at);
+	CREATE TABLE IF NOT EXISTS api_tokens(
+		id INTEGER PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		hash TEXT NOT NULL UNIQUE,
+		prefix TEXT NOT NULL,
+		readonly INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL,
+		last_used_at TEXT NOT NULL DEFAULT '');
+	CREATE TABLE IF NOT EXISTS passkeys(
+		id INTEGER PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		cred_id BLOB NOT NULL UNIQUE,
+		data TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		last_used_at TEXT NOT NULL DEFAULT '');
+	CREATE VIRTUAL TABLE IF NOT EXISTS docs_vocab USING fts5vocab(docs_fts, 'row');`,
+}
+
 func migrate(db *sql.DB) error {
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	for i := v; i < len(migrations); i++ {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(migrations[i]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("database update %d: %w", i+1, err)
+		}
+		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
@@ -101,6 +153,7 @@ type Doc struct {
 	Fields      map[string]string `json:"fields"`
 	Rule        string            `json:"rule"`
 	Tags        []string          `json:"tags"`
+	AddedBy     string            `json:"added_by"`
 	Snippet     string            `json:"snippet,omitempty"`
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
@@ -110,7 +163,8 @@ type Doc struct {
 
 const docCols = `d.id, d.status, d.path, d.title, COALESCE(s.name,''), COALESCE(d.sender_id,0), d.doc_date, d.amount_cents,
 	d.pages, d.size, d.source, d.ocr, d.notes, d.fields, d.rule, d.created_at, d.updated_at, d.sha256, d.mtime,
-	COALESCE((SELECT group_concat(t.name, char(31)) FROM doc_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.doc_id = d.id), '')`
+	COALESCE((SELECT group_concat(t.name, char(31)) FROM doc_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.doc_id = d.id), ''),
+	COALESCE((SELECT COALESCE(NULLIF(u.name,''), u.username) FROM users u WHERE u.id = d.added_by), '')`
 
 type scanner interface{ Scan(...any) error }
 
@@ -119,7 +173,7 @@ func scanDoc(row scanner, extra ...any) (*Doc, error) {
 	var amount sql.NullInt64
 	var fields, tags string
 	dest := []any{&d.ID, &d.Status, &d.Path, &d.Title, &d.Sender, &d.SenderID, &d.Date, &amount,
-		&d.Pages, &d.Size, &d.Source, &d.OCR, &d.Notes, &fields, &d.Rule, &d.CreatedAt, &d.UpdatedAt, &d.SHA256, &d.MTime, &tags}
+		&d.Pages, &d.Size, &d.Source, &d.OCR, &d.Notes, &fields, &d.Rule, &d.CreatedAt, &d.UpdatedAt, &d.SHA256, &d.MTime, &tags, &d.AddedBy}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
 		return nil, err
 	}
@@ -221,6 +275,8 @@ func (a *App) docText(id int64) string {
 
 // NewDoc is what the processing pipeline hands over.
 type NewDoc struct {
+	AddedBy     int64
+	OCRMillis   int64
 	Status      string
 	Path        string
 	SHA256      string
@@ -265,9 +321,9 @@ func (a *App) insertDoc(n NewDoc) (int64, error) {
 	}
 	ts := now()
 	res, err := tx.Exec(`INSERT INTO docs(status, path, sha256, file_sha, title, sender_id, doc_date, amount_cents, pages, size, mtime,
-		source, ocr, notes, fields, rule, paperless_id, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		source, ocr, notes, fields, rule, paperless_id, created_at, updated_at, added_by, ocr_ms) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		n.Status, n.Path, n.SHA256, n.FileSHA, n.Title, sid, n.Date, amount, n.Pages, n.Size, n.MTime,
-		n.Source, n.OCR, n.Notes, string(fields), n.Rule, pid, ts, ts)
+		n.Source, n.OCR, n.Notes, string(fields), n.Rule, pid, ts, ts, nullID(n.AddedBy), n.OCRMillis)
 	if err != nil {
 		return 0, err
 	}
@@ -333,6 +389,13 @@ func (a *App) patchDoc(id int64, p DocPatch) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+func nullID(id int64) any {
+	if id <= 0 {
+		return nil
+	}
+	return id
 }
 
 func validDate(s string) bool {

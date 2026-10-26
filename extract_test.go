@@ -17,6 +17,8 @@ func TestFindDate(t *testing.T) {
 		{"Telefon 0221 12.34.56", ""},
 		{"Lieferung 31.02.2026 und 15.03.2026", "2026-03-15"},
 		{"Termin am 01.01.2031", ""}, // too far in the future
+		{"Bundesanzeiger\nVerlag\nTransparenzregister\nAmsterdamer Straße 192 · 50735 Köln\nTelefon (0800) 12 34-207\nDatum: 09. Februar 2026\nFrist bis 10.05.2034", "2026-02-09"},
+		{"Datum:09.Februar 2026", "2026-02-09"},
 	}
 	for _, c := range cases {
 		if got := findDate(c.text, refNow); got != c.want {
@@ -132,6 +134,20 @@ func TestGuessTitleAndSender(t *testing.T) {
 	}
 	if s := knownSender(text, []string{"AG", "Muster Versicherung", "Versicherung"}); s != "Muster Versicherung" {
 		t.Errorf("knownSender = %q", s)
+	}
+}
+
+func TestTitleChecks(t *testing.T) {
+	for in, want := range map[string]bool{"2026-03-01": false, "Scan_0001": false, "IMG 2041": false, "Mietvertrag": true, "Kfz-Steuer 2026": true} {
+		if got := hasLetters(in); got != want {
+			t.Errorf("hasLetters(%q) = %v", in, got)
+		}
+	}
+	if g := guessTitle("Firma\nBetreff: Mitteilung zum Transparenzregister\nSehr geehrte"); g != "Mitteilung zum Transparenzregister" {
+		t.Errorf("subject title = %q", g)
+	}
+	if plausibleDate("2034-05-10", refNow) || !plausibleDate("2026-02-09", refNow) {
+		t.Error("plausibleDate")
 	}
 }
 

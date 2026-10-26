@@ -31,7 +31,32 @@ type User struct {
 	ID       int64  `json:"id"`
 	Username string `json:"username"`
 	Name     string `json:"name"`
+	Role     string `json:"role"` // admin | member | viewer
+	viaToken bool   // signed in with an API token instead of the session cookie
 }
+
+// Roles, from least to most: viewers read and download, members also scan,
+// upload, review and edit documents, admins also change settings, rules
+// and accounts.
+const (
+	roleViewer = 1
+	roleMember = 2
+	roleAdmin  = 3
+)
+
+func roleLevel(r string) int {
+	switch r {
+	case "admin":
+		return roleAdmin
+	case "member":
+		return roleMember
+	case "viewer":
+		return roleViewer
+	}
+	return 0
+}
+
+func validRole(r string) bool { return roleLevel(r) > 0 }
 
 type ctxKey struct{}
 
@@ -93,7 +118,10 @@ func (a *App) userCount() (int, error) {
 
 var usernameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{1,31}$`)
 
-func (a *App) createUser(username, name, pw string) (int64, error) {
+func (a *App) createUser(username, name, pw, role string) (int64, error) {
+	if !validRole(role) {
+		return 0, errors.New("Unknown role.")
+	}
 	username = strings.ToLower(strings.TrimSpace(username))
 	if !usernameRe.MatchString(username) {
 		return 0, errors.New("Username: 2–32 characters, lowercase letters, digits, dot, dash or underscore.")
@@ -105,7 +133,8 @@ func (a *App) createUser(username, name, pw string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	res, err := a.db.Exec(`INSERT INTO users(username, name, pass, created_at) VALUES(?,?,?,?)`, username, clean(name, 60), h, now())
+	res, err := a.db.Exec(`INSERT INTO users(username, name, pass, role, handle, created_at) VALUES(?,?,?,?,?,?)`,
+		username, clean(name, 60), h, role, randomBytes(32), now())
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return 0, errors.New("That username is taken.")
@@ -123,14 +152,23 @@ func (a *App) startSession(w http.ResponseWriter, r *http.Request, uid int64) {
 		Secure: r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"), SameSite: http.SameSiteLaxMode})
 }
 
+func randomBytes(n int) []byte {
+	b := make([]byte, n)
+	rand.Read(b)
+	return b
+}
+
 func (a *App) currentUser(r *http.Request) *User {
+	if t, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+		return a.tokenUser(strings.TrimSpace(t))
+	}
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
 		return nil
 	}
 	var u User
-	err = a.db.QueryRow(`SELECT u.id, u.username, u.name FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token = ? AND s.expires_at > ?`, tokenHash(c.Value), time.Now().Unix()).Scan(&u.ID, &u.Username, &u.Name)
+	err = a.db.QueryRow(`SELECT u.id, u.username, u.name, u.role FROM sessions s JOIN users u ON u.id = s.user_id
+		WHERE s.token = ? AND s.expires_at > ?`, tokenHash(c.Value), time.Now().Unix()).Scan(&u.ID, &u.Username, &u.Name, &u.Role)
 	if err != nil {
 		return nil
 	}
@@ -140,17 +178,61 @@ func (a *App) currentUser(r *http.Request) *User {
 	return &u
 }
 
-// auth guards API handlers: a session is required, and changes must come
-// from this site (Origin check) as JSON or a form posted by the app.
-func (a *App) auth(h http.HandlerFunc) http.HandlerFunc {
+// tokenUser signs in with an API token ("sb_…"). A read-only token acts as
+// a viewer, whatever the account's role.
+func (a *App) tokenUser(tok string) *User {
+	if !strings.HasPrefix(tok, "sb_") {
+		return nil
+	}
+	var u User
+	var id int64
+	var ro bool
+	err := a.db.QueryRow(`SELECT t.id, t.readonly, u.id, u.username, u.name, u.role FROM api_tokens t JOIN users u ON u.id = t.user_id
+		WHERE t.hash = ?`, tokenHash(tok)).Scan(&id, &ro, &u.ID, &u.Username, &u.Name, &u.Role)
+	if err != nil {
+		return nil
+	}
+	if ro {
+		u.Role = "viewer"
+	}
+	if u.Name == "" {
+		u.Name = u.Username
+	}
+	u.viaToken = true
+	a.db.Exec(`UPDATE api_tokens SET last_used_at = ? WHERE id = ?`, now(), id)
+	return &u
+}
+
+// auth guards API handlers: any signed-in account may read.
+func (a *App) auth(h http.HandlerFunc) http.HandlerFunc { return a.guard(roleViewer, h) }
+
+// member guards changes to documents: scanning, uploading, editing.
+func (a *App) member(h http.HandlerFunc) http.HandlerFunc { return a.guard(roleMember, h) }
+
+// admin guards settings, rules, accounts and the import.
+func (a *App) admin(h http.HandlerFunc) http.HandlerFunc { return a.guard(roleAdmin, h) }
+
+// guard needs a session or an API token and the role for the action.
+// Changes made with the session cookie must come from this site (Origin
+// check); API tokens are sent by scripts, not browsers, so no cookie can be
+// misused there.
+func (a *App) guard(level int, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := a.currentUser(r)
 		if u == nil {
+			if r.Header.Get("Authorization") != "" {
+				fail(w, 401, "Unknown or revoked API token.")
+				return
+			}
 			fail(w, 401, "Please sign in.")
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r) {
+		if !u.viaToken && r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r) {
 			fail(w, 403, "Request from another site rejected.")
+			return
+		}
+		if roleLevel(u.Role) < level {
+			fail(w, 403, "Your account can't do this. Ask an admin.")
 			return
 		}
 		h(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, u)))
@@ -197,7 +279,7 @@ func (a *App) handleSetup(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "Wrong setup code. It is printed in the server log when Shoebox starts.")
 		return
 	}
-	id, err := a.createUser(in.Username, in.Name, in.Password)
+	id, err := a.createUser(in.Username, in.Name, in.Password, "admin")
 	if err != nil {
 		fail(w, 400, err.Error())
 		return
@@ -243,29 +325,88 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(`SELECT id, username, name FROM users ORDER BY id`)
+	rows, err := a.db.Query(`SELECT u.id, u.username, u.name, u.role,
+		(SELECT count(*) FROM passkeys p WHERE p.user_id = u.id),
+		(SELECT count(*) FROM docs d WHERE d.added_by = u.id)
+		FROM users u ORDER BY u.id`)
 	if err != nil {
 		fail(w, 500, err.Error())
 		return
 	}
 	defer rows.Close()
-	out := []User{}
+	type row struct {
+		User
+		Passkeys int `json:"passkeys"`
+		Docs     int `json:"docs"`
+	}
+	out := []row{}
 	for rows.Next() {
-		var u User
-		rows.Scan(&u.ID, &u.Username, &u.Name)
+		var u row
+		rows.Scan(&u.ID, &u.Username, &u.Name, &u.Role, &u.Passkeys, &u.Docs)
 		out = append(out, u)
 	}
 	writeJSON(w, 200, out)
 }
 
 func (a *App) handleUserAdd(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Username, Name, Password string }
+	var in struct{ Username, Name, Password, Role string }
 	if !readJSON(w, r, &in) {
 		return
 	}
-	if _, err := a.createUser(in.Username, in.Name, in.Password); err != nil {
+	if in.Role == "" {
+		in.Role = "member"
+	}
+	if _, err := a.createUser(in.Username, in.Name, in.Password, in.Role); err != nil {
 		fail(w, 400, err.Error())
 		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (a *App) adminCount() int {
+	var n int
+	a.db.QueryRow(`SELECT count(*) FROM users WHERE role = 'admin'`).Scan(&n)
+	return n
+}
+
+// handleUserUpdate changes another account's name, role or password (admins).
+func (a *App) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
+	id := pathID(r, "id")
+	var in struct {
+		Name     *string
+		Role     *string
+		Password *string
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	var role string
+	if err := a.db.QueryRow(`SELECT role FROM users WHERE id = ?`, id).Scan(&role); err != nil {
+		fail(w, 404, "No such account.")
+		return
+	}
+	if in.Role != nil && *in.Role != role {
+		if !validRole(*in.Role) {
+			fail(w, 400, "Unknown role.")
+			return
+		}
+		if role == "admin" && a.adminCount() <= 1 {
+			fail(w, 400, "Shoebox needs at least one admin.")
+			return
+		}
+		a.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, *in.Role, id)
+	}
+	if in.Name != nil {
+		a.db.Exec(`UPDATE users SET name = ? WHERE id = ?`, clean(*in.Name, 60), id)
+	}
+	if in.Password != nil {
+		if utf8.RuneCountInString(*in.Password) < 10 {
+			fail(w, 400, "The password needs at least 10 characters.")
+			return
+		}
+		h, _ := hashPassword(*in.Password)
+		a.db.Exec(`UPDATE users SET pass = ? WHERE id = ?`, h, id)
+		a.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, id)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
@@ -274,6 +415,12 @@ func (a *App) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r, "id")
 	if id == userFrom(r).ID {
 		fail(w, 400, "You can't delete your own account.")
+		return
+	}
+	var role string
+	a.db.QueryRow(`SELECT role FROM users WHERE id = ?`, id).Scan(&role)
+	if role == "admin" && a.adminCount() <= 1 {
+		fail(w, 400, "Shoebox needs at least one admin.")
 		return
 	}
 	a.db.Exec(`DELETE FROM users WHERE id = ?`, id)
@@ -286,6 +433,10 @@ func (a *App) handlePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := userFrom(r)
+	if u.viaToken {
+		fail(w, 403, "Change the password in the app.")
+		return
+	}
 	var hash string
 	a.db.QueryRow(`SELECT pass FROM users WHERE id = ?`, u.ID).Scan(&hash)
 	if !checkPassword(hash, in.Current) {

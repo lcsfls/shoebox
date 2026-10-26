@@ -25,6 +25,7 @@ type Importer struct {
 	mu     sync.Mutex
 	st     ImportStatus
 	cancel context.CancelFunc
+	userID int64 // who started the import
 }
 
 type ImportStatus struct {
@@ -232,6 +233,7 @@ func (a *App) handleImportStart(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	im.cancel = cancel
 	im.st = ImportStatus{Running: true, Errors: []string{}}
+	im.userID = userFrom(r).ID
 	im.mu.Unlock()
 	go im.run(ctx, c, in.Limit, in.Original)
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -296,7 +298,7 @@ func (im *Importer) run(ctx context.Context, c *plClient, limit int, original bo
 	tagName, corrName, typeName, fieldName := map[int]string{}, map[int]string{}, map[int]string{}, map[int]string{}
 	for _, t := range tags {
 		tagName[t.ID] = t.Name
-		a.db.Exec(`INSERT INTO tags(name, color) VALUES(?, ?) ON CONFLICT(name) DO NOTHING`, t.Name, t.Color)
+		a.db.Exec(`INSERT INTO tags(name, color) VALUES(?, ?) ON CONFLICT(name) DO NOTHING`, t.Name, nearestTagColor(t.Color))
 	}
 	for _, t := range corrs {
 		corrName[t.ID] = t.Name
@@ -446,8 +448,17 @@ func (im *Importer) importDoc(ctx context.Context, c *plClient, pd plDoc, origin
 		sender = corrName[*pd.Correspondent]
 	}
 	date := ""
-	if len(pd.Created) >= 10 && validDate(pd.Created[:10]) {
+	if len(pd.Created) >= 10 && plausibleDate(pd.Created[:10], time.Now()) {
 		date = pd.Created[:10]
+	} else {
+		// Paperless sometimes reads a far-off date from the text; look again
+		date = findDate(text, time.Now())
+	}
+	title := clean(pd.Title, 200)
+	if !hasLetters(title) {
+		if t := guessTitle(text); t != "" {
+			title = t
+		}
 	}
 	fields := map[string]string{}
 	for _, cf := range pd.CustomFields {
@@ -466,7 +477,7 @@ func (im *Importer) importDoc(ctx context.Context, c *plClient, pd plDoc, origin
 	notes := pd.noteTexts()
 	f2 := findAmount(text)
 	id, err := a.insertDoc(NewDoc{
-		Status: "inbox", SHA256: sha, FileSHA: sha, Title: clean(pd.Title, 200), Sender: sender, Date: date,
+		Status: "inbox", SHA256: sha, FileSHA: sha, Title: title, Sender: sender, Date: date, AddedBy: im.userID,
 		AmountCents: f2, Pages: pdfPages(ctx, tmp), Size: size, Source: "paperless", OCR: ocr,
 		Notes: strings.Join(notes, "\n\n"), Fields: fields, Tags: tags, Text: text, PaperlessID: int64(pd.ID),
 	})

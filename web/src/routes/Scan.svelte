@@ -26,6 +26,8 @@
   let fileInput = $state();
   let galleryInput = $state();
   let sending = $state(0);
+  let torchAvailable = $state(false); // the phone's light, where the browser allows it (Chrome on Android)
+  let torch = $state(false);
 
   const canCamera = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && window.isSecureContext;
 
@@ -50,6 +52,8 @@
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
       });
       liveCamera = true;
+      const track = stream.getVideoTracks()[0];
+      torchAvailable = !!track?.getCapabilities?.().torch;
       await resumeCamera();
     } catch (e) {
       liveCamera = false;
@@ -69,6 +73,17 @@
     }
     fitFrame();
     detectLoop();
+  }
+
+  async function toggleTorch() {
+    const track = stream?.getVideoTracks()[0];
+    if (!track) return;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: !torch }] });
+      torch = !torch;
+    } catch {
+      torchAvailable = false;
+    }
   }
 
   function stopCamera() {
@@ -237,7 +252,11 @@
   <header class="bar">
     <button class="round" onclick={close} aria-label="Close the scanner"><Icon name="close" /></button>
     <span class="title">{mode === 'crop' ? 'Adjust the corners' : `Page ${pages.length + 1}`}</span>
-    <span class="round placeholder" aria-hidden="true"></span>
+    {#if torchAvailable && mode === 'camera'}
+      <button class="round" class:on={torch} onclick={toggleTorch} aria-pressed={torch} aria-label={torch ? 'Turn the light off' : 'Turn the light on'}><Icon name="flash" /></button>
+    {:else}
+      <span class="round placeholder" aria-hidden="true"></span>
+    {/if}
   </header>
 
   {#if mode === 'camera' || (mode === 'busy' && !shot)}
@@ -321,6 +340,7 @@
   .title { font-weight: 600; }
   .round { width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgb(255 255 255 / 0.14); color: #fff; display: grid; place-items: center; cursor: pointer; }
   .placeholder { background: none; }
+  .round.on { background: #F2B33D; color: #2B2620; }
   .viewport { position: relative; flex: 1; min-height: 0; margin: 0 10px; border-radius: 16px; overflow: hidden; background: #2B2620; display: grid; place-items: center; }
   .frame { position: relative; }
   video, .frame img { width: 100%; height: 100%; display: block; object-fit: fill; user-select: none; -webkit-user-drag: none; }

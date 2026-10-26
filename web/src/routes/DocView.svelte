@@ -1,6 +1,6 @@
 <script>
   import { api } from '../lib/api.js';
-  import { toast } from '../lib/stores.js';
+  import { toast, user, can } from '../lib/stores.js';
   import { navigate } from '../lib/router.js';
   import { amountInput, parseAmount, formatDate, formatSize, formatAmount } from '../lib/format.js';
   import Icon from '../components/Icon.svelte';
@@ -100,7 +100,7 @@
               {#if doc.notes}<dt>Notes</dt><dd class="pre">{doc.notes}</dd>{/if}
             </dl>
             <div class="row">
-              <button class="btn" onclick={() => (editing = true)}><Icon name="edit" />Edit</button>
+              {#if can($user, 'member')}<button class="btn" onclick={() => (editing = true)}><Icon name="edit" />Edit</button>{/if}
               <a class="btn" href="/api/docs/{doc.id}/pdf?dl=1" download><Icon name="download" />Download</a>
               <a class="btn" href="/api/docs/{doc.id}/pdf" target="_blank" rel="noopener"><Icon name="file" />PDF</a>
             </div>
@@ -108,10 +108,10 @@
         {/if}
         <div class="card box info small">
           <p class="mono path">{doc.status === 'inbox' ? 'In the review inbox' : doc.path}</p>
-          <p class="muted">{sources[doc.source] || doc.source} · {doc.pages} page{doc.pages === 1 ? '' : 's'} · {formatSize(doc.size)} · text: {ocrNames[doc.ocr] || doc.ocr}{doc.rule ? ` · rule “${doc.rule}”` : ''}</p>
+          <p class="muted">{sources[doc.source] || doc.source}{doc.added_by ? ` by ${doc.added_by}` : ''} · {doc.pages} page{doc.pages === 1 ? '' : 's'} · {formatSize(doc.size)} · text: {ocrNames[doc.ocr] || doc.ocr}{doc.rule ? ` · rule “${doc.rule}”` : ''}</p>
           <div class="row">
             <button class="btn small" onclick={() => (showText = !showText)}><Icon name="text" />{showText ? 'Hide the text' : 'Show the recognized text'}</button>
-            <button class="btn small ghost danger" onclick={remove}><Icon name="trash" />Delete</button>
+            {#if can($user, 'member')}<button class="btn small ghost danger" onclick={remove}><Icon name="trash" />Delete</button>{/if}
           </div>
           {#if showText}<pre class="ocr">{text || 'No text recognized.'}</pre>{/if}
         </div>

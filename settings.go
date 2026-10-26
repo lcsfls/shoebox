@@ -25,6 +25,9 @@ type Settings struct {
 	Workers      int        `json:"workers"`       // documents processed at the same time
 	WatchMinutes int        `json:"watch_minutes"` // look for new files in the archive every N minutes, 0 = off
 	WatchOCR     bool       `json:"watch_ocr"`     // add a text layer to PDFs found in the archive that have none
+	Learn        bool       `json:"learn"`         // suggest tags and sender from similar filed documents
+	BackupDaily  bool       `json:"backup_daily"`  // copy the database into the archive folder once a day
+	BackupKeep   int        `json:"backup_keep"`   // how many backups to keep
 	AI           AISettings `json:"ai"`
 }
 
@@ -36,6 +39,8 @@ func defaultSettings() Settings {
 		Workers:      1,
 		WatchMinutes: 5,
 		WatchOCR:     true,
+		Learn:        true,
+		BackupKeep:   14,
 		AI:           AISettings{TimeoutSec: 180, MaxPages: 5},
 	}
 }

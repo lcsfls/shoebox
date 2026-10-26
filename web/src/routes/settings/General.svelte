@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from '../../lib/api.js';
-  import { toast, user } from '../../lib/stores.js';
+  import { toast, user, can } from '../../lib/stores.js';
   import { previewPath } from '../../lib/format.js';
   import { loadSettings, saveSettings } from './useSettings.js';
   import Icon from '../../components/Icon.svelte';
@@ -11,7 +11,7 @@
   let busy = $state(false);
   const sample = { title: 'Stromrechnung Oktober', sender: 'Stadtwerke', date: '2026-10-24', tags: ['Strom'], id: 42 };
 
-  onMount(async () => { s = (await loadSettings()).settings; });
+  onMount(async () => { if (can($user, 'admin')) s = (await loadSettings()).settings; });
 
   async function save(e) {
     e.preventDefault();
@@ -53,9 +53,9 @@
 
 <div class="card sec">
   <h2>Account</h2>
-  <p>Signed in as <strong>{$user?.name}</strong> ({$user?.username}). Shoebox {version}.</p>
+  <p>Signed in as <strong>{$user?.name}</strong> ({$user?.username}, {$user?.role}). Shoebox {version}.</p>
   <div class="actions">
-    <a class="btn" href="/settings/users">Change password</a>
+    <a class="btn" href="/settings/account"><Icon name="key" />Passkeys and password</a>
     <button class="btn" onclick={logout}><Icon name="logout" />Sign out</button>
   </div>
 </div>

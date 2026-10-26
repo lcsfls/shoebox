@@ -223,7 +223,11 @@ func (a *App) handleDocThumb(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDocPage(w http.ResponseWriter, r *http.Request) {
 	n, _ := strconv.Atoi(r.PathValue("n"))
-	a.serveImage(w, r, n, 1400, fmt.Sprintf("page-%d.jpg", n))
+	width := 1400
+	if v, _ := strconv.Atoi(r.URL.Query().Get("w")); v >= 2000 {
+		width = 2400 // for cropping a page again
+	}
+	a.serveImage(w, r, n, width, fmt.Sprintf("page-%d-%d.jpg", n, width))
 }
 
 // --- incoming files ---
@@ -311,7 +315,7 @@ func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	job := a.jobs.add(&Job{Kind: "scan", Name: fmt.Sprintf("Scan, %d page(s)", len(pages)), files: pages, dir: dir})
+	job := a.jobs.add(&Job{Kind: "scan", Name: fmt.Sprintf("Scan, %d page(s)", len(pages)), files: pages, dir: dir, userID: userFrom(r).ID})
 	writeJSON(w, 200, map[string]any{"job": job.ID})
 }
 
@@ -352,7 +356,7 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, err.Error())
 			return
 		}
-		job := a.jobs.add(&Job{Kind: "upload", Name: clean(fh.Filename, 200), files: []string{p}, dir: dir})
+		job := a.jobs.add(&Job{Kind: "upload", Name: clean(fh.Filename, 200), files: []string{p}, dir: dir, userID: userFrom(r).ID})
 		ids = append(ids, job.ID)
 	}
 	if len(ids) == 0 {
@@ -448,12 +452,15 @@ func (a *App) handleSenders(w http.ResponseWriter, r *http.Request) {
 
 // rename; renaming onto an existing name merges the two
 func (a *App) renameNamed(w http.ResponseWriter, r *http.Request, table string) {
-	id := pathID(r, "id")
 	var in struct{ Name string }
 	if !readJSON(w, r, &in) {
 		return
 	}
-	name := clean(in.Name, 120)
+	a.renameTo(w, pathID(r, "id"), table, in.Name)
+}
+
+func (a *App) renameTo(w http.ResponseWriter, id int64, table, newName string) {
+	name := clean(newName, 120)
 	if name == "" {
 		fail(w, 400, "The name can't be empty.")
 		return
@@ -506,7 +513,55 @@ func (a *App) renameNamed(w http.ResponseWriter, r *http.Request, table string) 
 	writeJSON(w, 200, map[string]any{"ok": true, "merged": other > 0})
 }
 
-func (a *App) handleTagUpdate(w http.ResponseWriter, r *http.Request) { a.renameNamed(w, r, "tags") }
+// tag colors are names from the app's palette; empty = picked from the name
+var tagColors = map[string]bool{"": true, "sand": true, "clay": true, "rose": true, "plum": true, "sky": true,
+	"teal": true, "moss": true, "olive": true, "amber": true, "slate": true}
+
+// nearestTagColor maps a color from elsewhere (Paperless uses "#a6cee3") to
+// the closest one of the palette.
+func nearestTagColor(hex string) string {
+	ref := map[string][3]int{"sand": {200, 162, 122}, "clay": {201, 113, 75}, "rose": {201, 91, 120}, "plum": {142, 98, 174},
+		"sky": {77, 139, 194}, "teal": {46, 154, 140}, "moss": {94, 154, 69}, "olive": {163, 154, 58}, "amber": {224, 168, 46}, "slate": {123, 127, 140}}
+	var r, g, b int
+	if _, err := fmt.Sscanf(strings.TrimPrefix(hex, "#"), "%02x%02x%02x", &r, &g, &b); err != nil {
+		return ""
+	}
+	best, bd := "", 1<<30
+	for k, c := range ref {
+		d := (r-c[0])*(r-c[0]) + (g-c[1])*(g-c[1]) + (b-c[2])*(b-c[2])
+		if d < bd || (d == bd && k < best) {
+			best, bd = k, d
+		}
+	}
+	return best
+}
+
+func (a *App) handleTagUpdate(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name  *string `json:"name"`
+		Color *string `json:"color"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	id := pathID(r, "id")
+	if in.Color != nil {
+		if !tagColors[*in.Color] {
+			fail(w, 400, "Unknown color.")
+			return
+		}
+		a.db.Exec(`UPDATE tags SET color = ? WHERE id = ?`, *in.Color, id)
+		if in.Name == nil {
+			writeJSON(w, 200, map[string]any{"ok": true})
+			return
+		}
+	}
+	if in.Name == nil {
+		fail(w, 400, "Nothing to change.")
+		return
+	}
+	a.renameTo(w, id, "tags", *in.Name)
+}
 func (a *App) handleSenderUpdate(w http.ResponseWriter, r *http.Request) {
 	a.renameNamed(w, r, "senders")
 }

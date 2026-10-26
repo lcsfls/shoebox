@@ -1,5 +1,6 @@
 <script>
   import { api } from '../lib/api.js';
+  import { passkeysSupported, signInWithPasskey } from '../lib/passkey.js';
   import Icon from '../components/Icon.svelte';
 
   let { needsSetup = false, onDone } = $props();
@@ -10,6 +11,20 @@
   let code = $state('');
   let error = $state('');
   let busy = $state(false);
+
+  const canPasskey = passkeysSupported();
+  async function passkey() {
+    error = '';
+    busy = true;
+    try {
+      await signInWithPasskey();
+      onDone?.();
+    } catch (err) {
+      error = err.message;
+    } finally {
+      busy = false;
+    }
+  }
 
   async function submit(e) {
     e.preventDefault();
@@ -46,11 +61,15 @@
       <label class="field">Password again<input type="password" bind:value={password2} autocomplete="new-password" required /></label>
     {:else}
       <h1>Sign in</h1>
-      <label class="field">Username<input type="text" bind:value={username} autocomplete="username" autocapitalize="none" required /></label>
+      <label class="field">Username<input type="text" bind:value={username} autocomplete="username webauthn" autocapitalize="none" required /></label>
       <label class="field">Password<input type="password" bind:value={password} autocomplete="current-password" required /></label>
     {/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <button class="btn primary" disabled={busy}>{needsSetup ? 'Create account' : 'Sign in'}</button>
+    {#if !needsSetup && canPasskey}
+      <div class="or"><span>or</span></div>
+      <button type="button" class="btn" onclick={passkey} disabled={busy}><Icon name="key" />Sign in with a passkey</button>
+    {/if}
   </form>
 </div>
 
@@ -60,4 +79,6 @@
   .logo { display: flex; align-items: center; gap: 10px; color: var(--accent); }
   .logo span { color: var(--ink); font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
   h1 { margin-bottom: 4px; }
+  .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.85rem; }
+  .or::before, .or::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
 </style>

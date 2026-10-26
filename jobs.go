@@ -28,8 +28,9 @@ type Job struct {
 	DocID   int64     `json:"doc_id,omitempty"`
 	Created time.Time `json:"created"`
 
-	files []string // scan: page images; upload: one file; folder: archive-relative path
-	dir   string   // temp dir owned by the job
+	files  []string // scan: page images; upload: one file; folder: archive-relative path
+	dir    string   // temp dir owned by the job
+	userID int64    // who scanned or uploaded it
 }
 
 type Jobs struct {
@@ -193,6 +194,7 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 		}
 	}
 
+	started := time.Now()
 	if isPDF {
 		step("Reading text")
 		text = pdfText(ctx, first)
@@ -233,6 +235,7 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 		}
 	}
 
+	ocrMillis := time.Since(started).Milliseconds()
 	step("Sorting")
 	f := a.analyze(text)
 	mergeAI(&f, aiFacts)
@@ -242,12 +245,14 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 	}
 	title := f.Title
 	if title == "" && job.Kind == "upload" {
-		title = titleFromFile(job.Name)
+		if t := titleFromFile(job.Name); hasLetters(t) {
+			title = t
+		}
 	}
 	n := NewDoc{
 		Status: "inbox", SHA256: srcSHA, FileSHA: fsha, Title: title, Sender: f.Sender, Date: f.Date,
 		AmountCents: f.AmountCents, Pages: pdfPages(ctx, out), Size: size, Source: job.Kind, OCR: ocr,
-		Rule: f.Rule, Tags: f.Tags, Text: text,
+		Rule: f.Rule, Tags: f.Tags, Text: text, AddedBy: job.userID, OCRMillis: ocrMillis,
 	}
 	id, err := a.insertDoc(n)
 	if err != nil {
@@ -485,8 +490,10 @@ func (a *App) processFolderFile(ctx context.Context, rel string, step func(strin
 	s := a.settings()
 	text := pdfText(ctx, abs)
 	ocr := "pdf"
+	var ocrMillis int64
 	if !hasText(text) && s.WatchOCR {
 		step("Recognizing text")
+		started := time.Now()
 		// keep the untouched original on the local disk, just in case
 		copyFile(abs, filepath.Join(a.cfg.DataDir, "originals", srcSHA+".pdf"))
 		tmp := filepath.Join(filepath.Dir(abs), ".shoebox-"+randomToken(6)+".pdf")
@@ -503,6 +510,7 @@ func (a *App) processFolderFile(ctx context.Context, rel string, step func(strin
 			return 0, err
 		}
 		text, ocr = t, "tesseract"
+		ocrMillis = time.Since(started).Milliseconds()
 	}
 	var aiFacts *Facts
 	if s.AI.Enabled && s.AI.BaseURL != "" && s.AI.Model != "" {
@@ -561,6 +569,6 @@ func (a *App) processFolderFile(ctx context.Context, rel string, step func(strin
 	return a.insertDoc(NewDoc{
 		Status: "filed", Path: rel, SHA256: srcSHA, FileSHA: fsha, Title: title, Sender: sender, Date: date,
 		AmountCents: f.AmountCents, Pages: pdfPages(ctx, abs), Size: size, MTime: st.ModTime().UnixNano(),
-		Source: "folder", OCR: ocr, Rule: f.Rule, Tags: tags, Text: text,
+		Source: "folder", OCR: ocr, Rule: f.Rule, Tags: tags, Text: text, OCRMillis: ocrMillis,
 	})
 }

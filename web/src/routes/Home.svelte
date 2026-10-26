@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api, upload } from '../lib/api.js';
-  import { toast, counts } from '../lib/stores.js';
+  import { toast, counts, user, can } from '../lib/stores.js';
   import { navigate } from '../lib/router.js';
   import { formatDate } from '../lib/format.js';
   import Icon from '../components/Icon.svelte';
@@ -54,6 +54,7 @@
     <input id="home-q" type="search" bind:value={q} placeholder="Search text, sender, tags …" enterkeyhint="search" />
   </form>
 
+  {#if can($user, 'member')}
   <div class="actions">
     <a class="scan" href="/scan">
       <span class="scan-icon"><Icon name="scan" size={30} /></span>
@@ -64,6 +65,7 @@
     </button>
     <input bind:this={fileInput} type="file" accept="application/pdf,image/*" multiple hidden onchange={onFiles} />
   </div>
+  {/if}
 
   <Jobs onChange={load} />
 

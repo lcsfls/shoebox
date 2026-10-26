@@ -35,13 +35,14 @@ type Config struct {
 }
 
 type App struct {
-	cfg       Config
-	db        *sql.DB
-	jobs      *Jobs
-	importer  *Importer
-	watcher   *Watcher
-	setupCode string
-	limiter   *limiter
+	cfg        Config
+	db         *sql.DB
+	jobs       *Jobs
+	importer   *Importer
+	watcher    *Watcher
+	setupCode  string
+	limiter    *limiter
+	ceremonies ceremonies // passkey sign-ins and registrations in progress
 }
 
 func env(k, def string) string {
@@ -155,6 +156,7 @@ func (a *App) housekeeping(ctx context.Context) {
 			return
 		case <-t.C:
 			a.db.Exec(`DELETE FROM sessions WHERE expires_at < ?`, time.Now().Unix())
+			a.maybeBackup()
 		}
 	}
 }
@@ -180,50 +182,69 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /api/setup", a.handleSetup)
 	mux.HandleFunc("POST /api/login", a.handleLogin)
 	mux.HandleFunc("POST /api/logout", a.handleLogout)
+	mux.HandleFunc("POST /api/login/passkey/begin", a.handlePasskeyLoginBegin)
+	mux.HandleFunc("POST /api/login/passkey/finish", a.handlePasskeyLoginFinish)
+	mux.HandleFunc("GET /api/passkeys", a.auth(a.handlePasskeys))
+	mux.HandleFunc("POST /api/passkeys/register/begin", a.auth(a.handlePasskeyRegisterBegin))
+	mux.HandleFunc("POST /api/passkeys/register/finish", a.auth(a.handlePasskeyRegisterFinish))
+	mux.HandleFunc("DELETE /api/passkeys/{id}", a.auth(a.handlePasskeyDelete))
 
 	// documents
 	mux.HandleFunc("GET /api/overview", a.auth(a.handleOverview))
 	mux.HandleFunc("GET /api/docs", a.auth(a.handleDocs))
 	mux.HandleFunc("GET /api/docs/{id}", a.auth(a.handleDoc))
-	mux.HandleFunc("PATCH /api/docs/{id}", a.auth(a.handleDocUpdate))
-	mux.HandleFunc("POST /api/docs/{id}/file", a.auth(a.handleDocFile))
-	mux.HandleFunc("DELETE /api/docs/{id}", a.auth(a.handleDocDelete))
+	mux.HandleFunc("PATCH /api/docs/{id}", a.member(a.handleDocUpdate))
+	mux.HandleFunc("POST /api/docs/{id}/file", a.member(a.handleDocFile))
+	mux.HandleFunc("DELETE /api/docs/{id}", a.member(a.handleDocDelete))
 	mux.HandleFunc("GET /api/docs/{id}/pdf", a.auth(a.handleDocPDF))
 	mux.HandleFunc("GET /api/docs/{id}/thumb", a.auth(a.handleDocThumb))
 	mux.HandleFunc("GET /api/docs/{id}/page/{n}", a.auth(a.handleDocPage))
-	mux.HandleFunc("POST /api/scan", a.auth(a.handleScan))
-	mux.HandleFunc("POST /api/upload", a.auth(a.handleUpload))
+	mux.HandleFunc("POST /api/scan", a.member(a.handleScan))
+	mux.HandleFunc("POST /api/upload", a.member(a.handleUpload))
 	mux.HandleFunc("GET /api/jobs", a.auth(a.handleJobs))
-	mux.HandleFunc("DELETE /api/jobs/{id}", a.auth(a.handleJobDismiss))
+	mux.HandleFunc("DELETE /api/jobs/{id}", a.member(a.handleJobDismiss))
 	mux.HandleFunc("GET /api/tree", a.auth(a.handleTree))
 	mux.HandleFunc("GET /api/tags", a.auth(a.handleTags))
-	mux.HandleFunc("PATCH /api/tags/{id}", a.auth(a.handleTagUpdate))
-	mux.HandleFunc("DELETE /api/tags/{id}", a.auth(a.handleTagDelete))
+	mux.HandleFunc("PATCH /api/tags/{id}", a.member(a.handleTagUpdate))
+	mux.HandleFunc("DELETE /api/tags/{id}", a.member(a.handleTagDelete))
 	mux.HandleFunc("GET /api/senders", a.auth(a.handleSenders))
-	mux.HandleFunc("PATCH /api/senders/{id}", a.auth(a.handleSenderUpdate))
-	mux.HandleFunc("DELETE /api/senders/{id}", a.auth(a.handleSenderDelete))
+	mux.HandleFunc("PATCH /api/senders/{id}", a.member(a.handleSenderUpdate))
+	mux.HandleFunc("DELETE /api/senders/{id}", a.member(a.handleSenderDelete))
 
 	// settings
 	mux.HandleFunc("GET /api/settings", a.auth(a.handleSettings))
-	mux.HandleFunc("PUT /api/settings", a.auth(a.handleSettingsSave))
-	mux.HandleFunc("POST /api/settings/ai-test", a.auth(a.handleAITest))
+	mux.HandleFunc("PUT /api/settings", a.admin(a.handleSettingsSave))
+	mux.HandleFunc("POST /api/settings/ai-test", a.admin(a.handleAITest))
 	mux.HandleFunc("GET /api/storage", a.auth(a.handleStorage))
-	mux.HandleFunc("POST /api/storage/rescan", a.auth(a.handleRescan))
+	mux.HandleFunc("POST /api/storage/rescan", a.admin(a.handleRescan))
+	mux.HandleFunc("GET /api/backups", a.admin(a.handleBackups))
+	mux.HandleFunc("POST /api/backups", a.admin(a.handleBackupNow))
+	mux.HandleFunc("GET /api/stats", a.auth(a.handleStats))
 	mux.HandleFunc("GET /api/rules", a.auth(a.handleRules))
-	mux.HandleFunc("POST /api/rules", a.auth(a.handleRuleSave))
-	mux.HandleFunc("PUT /api/rules/{id}", a.auth(a.handleRuleSave))
-	mux.HandleFunc("DELETE /api/rules/{id}", a.auth(a.handleRuleDelete))
+	mux.HandleFunc("POST /api/rules", a.admin(a.handleRuleSave))
+	mux.HandleFunc("PUT /api/rules/{id}", a.admin(a.handleRuleSave))
+	mux.HandleFunc("DELETE /api/rules/{id}", a.admin(a.handleRuleDelete))
 	mux.HandleFunc("POST /api/rules/test", a.auth(a.handleRuleTest))
-	mux.HandleFunc("GET /api/users", a.auth(a.handleUsers))
-	mux.HandleFunc("POST /api/users", a.auth(a.handleUserAdd))
-	mux.HandleFunc("DELETE /api/users/{id}", a.auth(a.handleUserDelete))
+	mux.HandleFunc("GET /api/rules/suggestions", a.admin(a.handleRuleSuggestions))
+	mux.HandleFunc("POST /api/rules/suggestions/dismiss", a.admin(a.handleRuleSuggestionDismiss))
+	mux.HandleFunc("GET /api/docs/{id}/learned", a.auth(a.handleDocLearned))
+	mux.HandleFunc("GET /api/docs/{id}/words/{n}", a.auth(a.handleDocWords))
+	mux.HandleFunc("POST /api/parse", a.auth(a.handleParse))
+	mux.HandleFunc("POST /api/docs/{id}/pages", a.member(a.handleDocPages))
+	mux.HandleFunc("GET /api/users", a.admin(a.handleUsers))
+	mux.HandleFunc("POST /api/users", a.admin(a.handleUserAdd))
+	mux.HandleFunc("PATCH /api/users/{id}", a.admin(a.handleUserUpdate))
+	mux.HandleFunc("DELETE /api/users/{id}", a.admin(a.handleUserDelete))
+	mux.HandleFunc("GET /api/tokens", a.auth(a.handleTokens))
+	mux.HandleFunc("POST /api/tokens", a.auth(a.handleTokenCreate))
+	mux.HandleFunc("DELETE /api/tokens/{id}", a.auth(a.handleTokenDelete))
 	mux.HandleFunc("POST /api/account/password", a.auth(a.handlePassword))
 
 	// Paperless import
-	mux.HandleFunc("POST /api/import/paperless/check", a.auth(a.handleImportCheck))
-	mux.HandleFunc("POST /api/import/paperless/start", a.auth(a.handleImportStart))
-	mux.HandleFunc("POST /api/import/paperless/stop", a.auth(a.handleImportStop))
-	mux.HandleFunc("GET /api/import/status", a.auth(a.handleImportStatus))
+	mux.HandleFunc("POST /api/import/paperless/check", a.admin(a.handleImportCheck))
+	mux.HandleFunc("POST /api/import/paperless/start", a.admin(a.handleImportStart))
+	mux.HandleFunc("POST /api/import/paperless/stop", a.admin(a.handleImportStop))
+	mux.HandleFunc("GET /api/import/status", a.admin(a.handleImportStatus))
 
 	// the app (single page, client-side routes)
 	dist, _ := fs.Sub(webFS, "web/dist")

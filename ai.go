@@ -113,7 +113,15 @@ func (a *App) aiFields(ctx context.Context, s AISettings, text string) (*Facts, 
 	if len(text) > 12000 {
 		text = text[:12000]
 	}
-	ans, err := a.chat(ctx, s, []chatMessage{{Role: "user", Content: fieldsPrompt + text}}, 400)
+	prompt := fieldsPrompt
+	if tags := a.tagNames(60); len(tags) > 0 {
+		// so the model reuses the archive's tags instead of inventing new spellings
+		prompt = strings.Replace(prompt, "Document text:", "Prefer these existing tags when they fit: "+strings.Join(tags, ", ")+"\nDocument text:", 1)
+	}
+	if senders := a.senderNames(); len(senders) > 0 && len(senders) <= 200 {
+		prompt = strings.Replace(prompt, "Document text:", "Known senders (use the same spelling): "+strings.Join(senders, ", ")+"\nDocument text:", 1)
+	}
+	ans, err := a.chat(ctx, s, []chatMessage{{Role: "user", Content: prompt + text}}, 400)
 	if err != nil {
 		return nil, err
 	}
