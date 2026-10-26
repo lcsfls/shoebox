@@ -185,6 +185,31 @@ func guessTitle(text string) string {
 	return best
 }
 
+var legalForm = regexp.MustCompile(`(?i)[\s,]+(gmbh\s*&\s*co\.?\s*kg|ggmbh|gmbh|mbh|ag|kg|ohg|ug(\s*\(haftungsbeschränkt\))?|e\.\s?v\.|se|ltd\.?|inc\.?|llc|s\.a\.|b\.v\.)$`)
+
+// guessSender looks for a company name near the top of a letter: a short
+// line ending in a legal form such as "GmbH" or "AG". The legal form is
+// dropped, "Stadtwerke Musterstadt GmbH" becomes "Stadtwerke Musterstadt".
+func guessSender(text string) string {
+	n := 0
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if n++; n > 10 {
+			break
+		}
+		if len(line) > 60 || strings.ContainsAny(line, "0123456789@") {
+			continue
+		}
+		if m := legalForm.FindStringIndex(line); m != nil && m[0] > 2 {
+			return strings.TrimSpace(line[:m[0]])
+		}
+	}
+	return ""
+}
+
 // knownSender finds a sender that already exists and is named near the top.
 func knownSender(text string, senders []string) string {
 	head := strings.ToLower(text)
@@ -267,6 +292,9 @@ func (a *App) analyze(text string) Facts {
 			f.Sender = s
 			f.Matched = true
 		}
+	}
+	if f.Sender == "" {
+		f.Sender = guessSender(text)
 	}
 	if f.Title == "" {
 		f.Title = guessTitle(text)

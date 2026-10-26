@@ -134,3 +134,18 @@ func TestGuessTitleAndSender(t *testing.T) {
 		t.Errorf("knownSender = %q", s)
 	}
 }
+
+func TestGuessSender(t *testing.T) {
+	cases := map[string]string{
+		"Stadtwerke Musterstadt GmbH\nHauptstrasse 1\nRechnung": "Stadtwerke Musterstadt",
+		"\n  Hausverwaltung Beispiel GmbH & Co. KG\nAm Markt 5": "Hausverwaltung Beispiel",
+		"Beispiel Versicherung AG\n":                            "Beispiel Versicherung",
+		"Max Mustermann\nMusterweg 3\n12345 Musterstadt":        "",
+		"Lieber Kunde, wir danken":                              "",
+	}
+	for in, want := range cases {
+		if got := guessSender(in); got != want {
+			t.Errorf("guessSender(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -40,8 +40,9 @@ jobs:
 
       - name: Format and vet
         run: |
-          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-          go vet ./...
+          mkdir -p /tmp/ci-output
+          set -o pipefail
+          { test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }; go vet ./...; } 2>&1 | tee /tmp/ci-output/vet.txt
 
       - name: Build
         id: build
@@ -110,10 +111,14 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # only to publish build output to the ci-docker branch
     steps:
       - uses: actions/checkout@v4
       - name: Build the image
-        run: docker build --build-arg VERSION=ci -t shoebox:ci .
+        run: |
+          set -o pipefail
+          docker build --progress=plain --build-arg VERSION=ci -t shoebox:ci . 2>&1 | tee /tmp/docker.txt
       - name: Smoke test
         run: |
           docker run -d --name sb -p 8081:8080 shoebox:ci
@@ -121,3 +126,13 @@ jobs:
           curl -fs http://127.0.0.1:8081/ | grep -q '<div id="app">'
           docker exec sb tesseract --list-langs | grep -q deu
           docker logs sb 2>&1 | grep -q 'setup code'
+      - name: Publish build output
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p /tmp/out && cd /tmp/out
+          tail -n 150 /tmp/docker.txt > docker.txt 2>/dev/null || true
+          echo "${{ job.status }} $GITHUB_SHA" > STATUS
+          git init -q -b ci-docker
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q --allow-empty -m "docker output" 
+          git add -A && git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "Docker output for $GITHUB_SHA"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-docker
