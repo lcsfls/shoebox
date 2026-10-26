@@ -23,6 +23,8 @@ import (
 func testApp(t *testing.T) *App {
 	t.Helper()
 	dir := t.TempDir()
+	// newApp points TMPDIR into its data folder; restore it after the test
+	t.Setenv("TMPDIR", os.TempDir())
 	a, err := newApp(Config{DataDir: filepath.Join(dir, "data"), Archive: filepath.Join(dir, "archive")})
 	if err != nil {
 		t.Fatal(err)

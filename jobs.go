@@ -390,6 +390,8 @@ func (a *App) docFile(d *Doc) (string, error) {
 // one after its title, sender or date changed. Files that were put into the
 // archive by hand stay where they are; only their metadata is updated.
 func (a *App) fileDoc(ctx context.Context, id int64) error {
+	// filing moves files: once started, finish even if the browser goes away
+	ctx = context.WithoutCancel(ctx)
 	d, err := a.getDoc(id)
 	if err != nil {
 		return err

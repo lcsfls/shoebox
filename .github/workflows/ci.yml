@@ -90,7 +90,8 @@ jobs:
         run: |
           mkdir -p /tmp/ci-output
           cp -r e2e/out /tmp/ci-output/screenshots 2>/dev/null || true
-          cp /tmp/sb/server.log go.sum web/package-lock.json e2e/package-lock.json /tmp/ci-output/ 2>/dev/null || true
+          cp /tmp/sb/server.log go.sum web/package-lock.json /tmp/ci-output/ 2>/dev/null || true
+          cp e2e/package-lock.json /tmp/ci-output/e2e-package-lock.json 2>/dev/null || true
           echo "${{ job.status }} $GITHUB_SHA" > /tmp/ci-output/STATUS
           cd /tmp/ci-output
           git init -q -b ci-output

@@ -112,7 +112,7 @@ try {
   await d.getByText('Rule saved').waitFor();
   await d.getByLabel('Paste the text of a letter').fill('Stadtwerke Musterstadt GmbH\nRechnungsdatum 24.10.2026\nGesamtbetrag 84,20 EUR');
   await d.getByRole('button', { name: 'Check' }).click();
-  await d.getByText('84,20').first().waitFor();
+  await d.getByText(/84[.,]20/).first().waitFor();
   await shot(d, '06-settings-rules', true);
 
   // archive and search
