@@ -7,7 +7,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.2",
     "svelte": "^5.40.0"
   }
 }

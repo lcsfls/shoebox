@@ -1,5 +1,5 @@
 # --- the web app ---
-FROM node:22-alpine AS web
+FROM node:26-alpine AS web
 WORKDIR /web
 COPY web/package*.json ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
@@ -7,7 +7,7 @@ COPY web/ ./
 RUN npm run build
 
 # --- the binary ---
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download
