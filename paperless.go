@@ -421,7 +421,7 @@ func (im *Importer) importDoc(ctx context.Context, c *plClient, pd plDoc, origin
 	if err != nil {
 		return err
 	}
-	if d, err := a.docBySHA(sha); err == nil {
+	if d, err := a.docBySHA(sha, false); err == nil {
 		return dupError{d}
 	}
 	text := pd.Content

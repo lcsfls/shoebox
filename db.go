@@ -140,8 +140,15 @@ func (a *App) getDoc(id int64) (*Doc, error) {
 	return scanDoc(a.db.QueryRow(`SELECT `+docCols+` FROM docs d LEFT JOIN senders s ON s.id = d.sender_id WHERE d.id = ?`, id))
 }
 
-func (a *App) docBySHA(sha string) (*Doc, error) {
-	return scanDoc(a.db.QueryRow(`SELECT `+docCols+` FROM docs d LEFT JOIN senders s ON s.id = d.sender_id WHERE (d.sha256 = ?1 OR d.file_sha = ?1) AND d.status <> 'missing' LIMIT 1`, sha))
+// docBySHA finds a document by the hash of its incoming or stored file.
+// Documents whose file went missing count only with withMissing (the
+// archive scan uses that to follow files moved by hand).
+func (a *App) docBySHA(sha string, withMissing bool) (*Doc, error) {
+	q := `SELECT ` + docCols + ` FROM docs d LEFT JOIN senders s ON s.id = d.sender_id WHERE (d.sha256 = ?1 OR d.file_sha = ?1)`
+	if !withMissing {
+		q += ` AND d.status <> 'missing'`
+	}
+	return scanDoc(a.db.QueryRow(q+` ORDER BY d.status = 'missing' LIMIT 1`, sha))
 }
 
 // senderID finds or creates a sender. Empty name: no sender.

@@ -207,7 +207,7 @@ try {
   await p.goto(B + '/archive?q=strom');
   await p.locator('a.doccard').first().waitFor();
   await shot(p, '21-phone-archive');
-  await p.getByRole('button', { name: 'Filter' }).click();
+  await p.getByRole('button', { name: 'Filter', exact: true }).click();
   await p.waitForTimeout(400);
   await shot(p, '22-phone-filters');
   await p.goto(B + '/archive');

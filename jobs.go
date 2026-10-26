@@ -188,7 +188,7 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 		srcSHA = "" // a new scan is never a duplicate of an earlier one
 	}
 	if srcSHA != "" {
-		if d, err := a.docBySHA(srcSHA); err == nil {
+		if d, err := a.docBySHA(srcSHA, false); err == nil {
 			return d.ID, dupError{d}
 		}
 	}
@@ -237,7 +237,7 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 	f := a.analyze(text)
 	mergeAI(&f, aiFacts)
 	fsha, size, _ := fileSHA(out)
-	if d, err := a.docBySHA(fsha); err == nil {
+	if d, err := a.docBySHA(fsha, false); err == nil {
 		return d.ID, dupError{d}
 	}
 	title := f.Title
@@ -472,7 +472,7 @@ func (a *App) processFolderFile(ctx context.Context, rel string, step func(strin
 	if err != nil {
 		return 0, err
 	}
-	if d, err := a.docBySHA(srcSHA); err == nil {
+	if d, err := a.docBySHA(srcSHA, true); err == nil {
 		if d.Status == "filed" {
 			if _, err := os.Stat(filepath.Join(a.cfg.Archive, d.Path)); err == nil && d.Path != rel {
 				return d.ID, dupError{d}
