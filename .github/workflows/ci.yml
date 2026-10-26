@@ -29,9 +29,13 @@ jobs:
       - name: Web app
         working-directory: web
         run: |
-          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-          npm test
-          npm run build
+          mkdir -p /tmp/ci-output
+          set -o pipefail
+          {
+            if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+            npm test
+            npm run build
+          } 2>&1 | tee /tmp/ci-output/web.txt
 
       - name: Go modules
         run: |
@@ -87,7 +91,7 @@ jobs:
 
       # Test output, screenshots and generated lock files on a branch, readable with git.
       - name: Publish test output
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: always() && github.event_name == 'push' && !startsWith(github.ref_name, 'dependabot/')
         run: |
           mkdir -p /tmp/ci-output
           cp -r e2e/out /tmp/ci-output/screenshots 2>/dev/null || true
