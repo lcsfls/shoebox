@@ -58,7 +58,7 @@ jobs:
 
       - name: Lock files
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lockfiles
           if-no-files-found: ignore
@@ -102,7 +102,7 @@ jobs:
 
       - name: Screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: screenshots
           path: e2e/out
