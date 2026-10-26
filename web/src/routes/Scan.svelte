@@ -253,7 +253,7 @@
   {:else if mode === 'crop' || (mode === 'busy' && shot)}
     <div class="viewport" bind:this={cropBox}>
       <div class="frame" style="width:{cropView.w}px;height:{cropView.h}px">
-        <img src={cropView.url} alt="The photo to crop" draggable="false" />
+        <img src={cropView.url} alt="Your page, with handles at the corners" draggable="false" />
         <svg class="overlay edit" viewBox="0 0 {cropView.w} {cropView.h}" role="application" aria-label="Drag the four corners onto the corners of the page"
           onpointermove={handleMove} onpointerup={handleUp} onpointercancel={handleUp}>
           <polygon points={cropPolygon} />
