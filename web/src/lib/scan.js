@@ -222,8 +222,29 @@ export function flatten(g, w, h) {
     for (; v > 0; v--) { acc += hist[b * 64 + v]; if (acc >= want) break; }
     bg[b] = v * 4 + 2;
   }
+  // a block mostly covered by something dark (a logo, a photo) is much darker
+  // than the paper around it: it takes the brightness of its neighbours.
+  // Light that fades slowly (a flash, a shadow) changes too little for this.
+  let grown = bg;
+  for (let pass = 0; pass < 2; pass++) {
+    const nx = new Float32Array(bw * bh);
+    for (let y = 0; y < bh; y++) {
+      for (let x = 0; x < bw; x++) {
+        let m = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const yy = y + dy, xx = x + dx;
+            if (yy >= 0 && yy < bh && xx >= 0 && xx < bw && grown[yy * bw + xx] > m) m = grown[yy * bw + xx];
+          }
+        }
+        nx[y * bw + x] = m;
+      }
+    }
+    grown = nx;
+  }
+  let cur = new Float32Array(bw * bh);
+  for (let b = 0; b < bw * bh; b++) cur[b] = bg[b] < grown[b] * 0.7 ? grown[b] : bg[b];
   // smooth the blocks (3×3), twice
-  let cur = bg;
   for (let pass = 0; pass < 2; pass++) {
     const nx = new Float32Array(bw * bh);
     for (let y = 0; y < bh; y++) {

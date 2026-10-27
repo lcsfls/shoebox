@@ -121,3 +121,13 @@ test('sharpness: a blurred picture scores lower', async () => {
   }
   assert.ok(sharpness(sharp, w, h) > sharpness(soft, w, h) * 5);
 });
+
+test('flatten keeps a large dark logo dark', async () => {
+  const { flatten } = await import('../src/lib/scan.js');
+  const w = 400, h = 400;
+  const g = new Uint8ClampedArray(w * h).fill(230);
+  for (let y = 100; y < 200; y++) for (let x = 100; x < 200; x++) g[y * w + x] = 40; // a dark square, larger than a block
+  const out = flatten(g, w, h);
+  assert.ok(out[150 * w + 150] < 80, `logo became ${out[150 * w + 150]}`);
+  assert.ok(out[50 * w + 50] > 230, 'paper is white');
+});
