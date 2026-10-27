@@ -312,7 +312,6 @@ func layoutLetter(lh Letterhead, l Letter) []*letterPage {
 	return pages
 }
 
-
 // renderLetter makes the PDF.
 func renderLetter(lh Letterhead, l Letter) []byte {
 	pages := layoutLetter(lh, l)
