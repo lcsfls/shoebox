@@ -36,9 +36,15 @@
       <span>File automatically when Shoebox is sure<span class="hint">A sorting rule or a known sender matched, and a date and a title were found. Everything else waits in Review.</span></span></label>
     <label class="check"><input type="checkbox" bind:checked={s.learn} />
       <span>Suggest tags and senders from similar documents<span class="hint">A new letter gets the tags that most of the closest filed documents share. They show with a dashed outline in Review.</span></span></label>
+    <label class="field">Stamps
+      <select bind:value={s.stamp_lang}><option value="de">German first (Eingang, Bezahlt)</option><option value="en">English first (Received, Paid)</option></select>
+      <span class="hint">Each stamp can still be switched to the other language when placing it.</span>
+    </label>
     <div class="two">
-      <label class="field">Received stamp<input type="text" bind:value={s.stamp_in} maxlength="24" placeholder="Eingang" /></label>
-      <label class="field">Paid stamp<input type="text" bind:value={s.stamp_paid} maxlength="24" placeholder="Bezahlt" /></label>
+      <label class="field">“Received” in German<input type="text" bind:value={s.stamp_in} maxlength="24" placeholder="Eingang" /></label>
+      <label class="field">“Paid” in German<input type="text" bind:value={s.stamp_paid} maxlength="24" placeholder="Bezahlt" /></label>
+      <label class="field">“Received” in English<input type="text" bind:value={s.stamp_in_en} maxlength="24" placeholder="Received" /></label>
+      <label class="field">“Paid” in English<input type="text" bind:value={s.stamp_paid_en} maxlength="24" placeholder="Paid" /></label>
     </div>
     <label class="field">Documents read at the same time
       <select bind:value={s.workers}><option value={1}>1 (small servers)</option><option value={2}>2</option><option value={3}>3</option><option value={4}>4</option></select>

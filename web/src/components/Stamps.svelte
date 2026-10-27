@@ -6,7 +6,9 @@
   import Icon from './Icon.svelte';
   import StampDialog from './StampDialog.svelte';
 
-  let { doc, stamps = [], labels = { in: 'Eingang', paid: 'Bezahlt' }, editable = true, onchange } = $props();
+  import { stampConfig } from '../lib/stamps.js';
+  let { doc, stamps = [], config = stampConfig(null), editable = true, onchange } = $props();
+  let labels = $derived(config[config.lang]);
   let open = $state(''); // kind of the stamp being placed
 
   async function removeAll() {
@@ -42,7 +44,7 @@
 </div>
 
 {#if open}
-  <StampDialog {doc} kind={open} label={labels[open]} onclose={() => (open = '')} onstamped={(r) => { open = ''; onchange?.(r); }} />
+  <StampDialog {doc} kind={open} {config} onclose={() => (open = '')} onstamped={(r) => { open = ''; onchange?.(r); }} />
 {/if}
 
 <style>

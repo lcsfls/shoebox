@@ -345,6 +345,7 @@ func (a *App) handleDocStamp(w http.ResponseWriter, r *http.Request) {
 		Y    float64 `json:"y"`
 		Date string  `json:"date"` // YYYY-MM-DD, default today
 		Note string  `json:"note"`
+		Lang string  `json:"lang"` // de | en, default from the settings
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -368,14 +369,11 @@ func (a *App) handleDocStamp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := a.settings()
-	label := s.StampIn
-	if in.Kind == "paid" {
-		label = s.StampPaid
+	lang := in.Lang
+	if lang != "en" && lang != "de" {
+		lang = s.StampLang
 	}
-	label = clean(label, 24)
-	if label == "" {
-		label = map[string]string{"in": "Eingang", "paid": "Bezahlt"}[in.Kind]
-	}
+	label, dateFmt := stampLabel(s, lang, in.Kind)
 	src, err := a.docFile(d)
 	if err != nil {
 		fail(w, 404, "The file is not reachable.")
@@ -397,7 +395,7 @@ func (a *App) handleDocStamp(w http.ResponseWriter, r *http.Request) {
 	}
 	defer os.RemoveAll(tmp)
 	out := filepath.Join(tmp, "out.pdf")
-	spec := stampSpec{Label: label, Date: day.Format("02.01.2006"), Note: clean(in.Note, 40), By: u.Name, Hash: hash, Color: col, X: in.X, Y: in.Y}
+	spec := stampSpec{Label: label, Date: day.Format(dateFmt), Note: clean(in.Note, 40), By: u.Name, Hash: hash, Color: col, X: in.X, Y: in.Y}
 	if err := burnStamp(r.Context(), src, out, in.Page, spec); err != nil {
 		fail(w, 500, "Stamping failed: "+err.Error())
 		return
@@ -443,4 +441,26 @@ func (a *App) handleDocUnstamp(w http.ResponseWriter, r *http.Request) {
 	os.Remove(keep)
 	nd, _ := a.getDoc(d.ID)
 	writeJSON(w, 200, map[string]any{"doc": nd, "stamps": []stampRow{}})
+}
+
+// stampLabel: the label of a stamp in a language, and how it prints dates.
+func stampLabel(s Settings, lang, kind string) (string, string) {
+	if lang == "en" {
+		l := s.StampInEn
+		if kind == "paid" {
+			l = s.StampPaidEn
+		}
+		if l = clean(l, 24); l == "" {
+			l = map[string]string{"in": "Received", "paid": "Paid"}[kind]
+		}
+		return l, "2 Jan 2006"
+	}
+	l := s.StampIn
+	if kind == "paid" {
+		l = s.StampPaid
+	}
+	if l = clean(l, 24); l == "" {
+		l = map[string]string{"in": "Eingang", "paid": "Bezahlt"}[kind]
+	}
+	return l, "02.01.2006"
 }

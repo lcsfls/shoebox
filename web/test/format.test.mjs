@@ -21,3 +21,13 @@ test('file name preview matches the server', () => {
 test('search snippets', () => {
   assert.deepEqual(snippetParts('Ihre \x02Strom\x03rechnung'), [{ text: 'Ihre ' }, { text: 'Strom', hit: true }, { text: 'rechnung' }]);
 });
+
+test('stamp dates and labels', async () => {
+  const { stampDate, stampConfig } = await import('../src/lib/stamps.js');
+  assert.equal(stampDate('2026-10-07', 'de'), '07.10.2026');
+  assert.equal(stampDate('2026-10-07', 'en'), '7 Oct 2026');
+  const c = stampConfig({ stamp_lang: 'en' });
+  assert.equal(c.lang, 'en');
+  assert.equal(c.en.paid, 'Paid');
+  assert.equal(c.de.in, 'Eingang');
+});

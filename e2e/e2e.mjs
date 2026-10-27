@@ -236,6 +236,13 @@ try {
   if (stamped.stamps?.length !== 1 || !/EINGANG/.test(stamped.text) || stamped.doc.fields?.Eingang === undefined) {
     problems.push(`stamp: ${JSON.stringify({ stamps: stamped.stamps, fields: stamped.doc?.fields, hasText: /EINGANG/.test(stamped.text || '') })}`);
   }
+  // and "Paid", in English this time
+  await d.getByRole('button', { name: 'Bezahlt', exact: true }).click();
+  await d.getByRole('radio', { name: /English/ }).click();
+  await d.getByRole('button', { name: 'Stamp it' }).click();
+  await d.getByText('Stamped “Paid”').waitFor();
+  const paid = await api(d, `/api/docs/${billDoc.id}`);
+  if (paid.stamps?.length !== 2 || !/PAID/.test(paid.text)) problems.push(`english stamp: ${JSON.stringify(paid.stamps)}`);
   await d.waitForTimeout(1500);
   await shot(d, '38-stamped');
   log('stamp ok');

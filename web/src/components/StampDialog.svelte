@@ -1,13 +1,16 @@
 <script>
   // Place a stamp ("Eingang", "Bezahlt") on a page and burn it into the PDF.
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { fade, scale } from 'svelte/transition';
   import { api } from '../lib/api.js';
   import { toast, user } from '../lib/stores.js';
   import { motion } from '../lib/motion.js';
   import Icon from './Icon.svelte';
 
-  let { doc, kind = 'in', label = 'Eingang', onstamped, onclose } = $props();
+  import { stampConfig, stampDate } from '../lib/stamps.js';
+  let { doc, kind = 'in', config = stampConfig(null), onstamped, onclose } = $props();
+  let lang = $state(untrack(() => config.lang)); // the settings' language first
+  let label = $derived(config[lang][kind]);
   let color = $derived(kind === 'paid' ? '#B3261E' : '#1F4F9E');
   const today = new Date();
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -24,7 +27,7 @@
   // the stamp's size as shares of the page
   let sw = $derived(size ? size.stamp_w : 0.27);
   let sh = $derived(size ? (size.stamp_w * size.stamp_ratio * size.w) / size.h : 0.14);
-  let printed = $derived(date ? date.split('-').reverse().join('.') : '');
+  let printed = $derived(stampDate(date, lang));
 
   // a free spot: corners first, away from the text
   function place(words) {
@@ -77,7 +80,7 @@
   async function stamp() {
     busy = true;
     try {
-      const r = await api.post(`/api/docs/${doc.id}/stamp`, { kind, page, x: pos.x, y: pos.y, date, note });
+      const r = await api.post(`/api/docs/${doc.id}/stamp`, { kind, page, x: pos.x, y: pos.y, date, note, lang });
       toast(`Stamped “${label}”`);
       onstamped?.(r);
     } catch (e) { toast(e.message, 'error', 6000); }
@@ -121,6 +124,13 @@
       </div>
     </div>
     <aside class="opts">
+      <div class="field-wrap">
+        <span class="lbl" id="stamp-lang">Language</span>
+        <div class="seg" role="radiogroup" aria-labelledby="stamp-lang">
+          <button type="button" role="radio" aria-checked={lang === 'de'} onclick={() => (lang = 'de')}>Deutsch · {config.de[kind]}</button>
+          <button type="button" role="radio" aria-checked={lang === 'en'} onclick={() => (lang = 'en')}>English · {config.en[kind]}</button>
+        </div>
+      </div>
       <label class="field">Date<input type="date" bind:value={date} required onkeydown={enterStamps} /></label>
       <label class="field">Note <span class="hint">optional, e.g. “per Überweisung”</span><input type="text" bind:value={note} maxlength="40" onkeydown={enterStamps} /></label>
       <p class="hint">Drag the stamp to its place. It goes into the PDF with the date, your name and the fingerprint (SHA-256) of the document as it is now. The version without stamps is kept, and the stamp's words become searchable.</p>
@@ -153,6 +163,11 @@
   .stamp .d { font-weight: 700; font-size: 7cqw; border-top: 1px solid var(--c); padding-top: 0.15em; width: 80%; text-align: center; }
   .stamp .n { font-size: 5cqw; }
   .stamp .h { font-family: Courier, monospace; font-size: 3.6cqw; opacity: 0.8; }
+  .field-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .lbl { font-size: 0.9rem; font-weight: 600; }
+  .seg { display: grid; grid-template-columns: 1fr; gap: 4px; }
+  .seg button { min-height: 38px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--field); color: var(--ink-2); font: inherit; font-size: 0.9rem; cursor: pointer; text-align: left; padding: 0 12px; }
+  .seg button[aria-checked='true'] { border-color: var(--accent); background: var(--chip); color: var(--chip-ink); font-weight: 650; }
   .opts { padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; border-left: 1px solid var(--line); overflow: auto; }
   @media (max-width: 760px) { .opts { border-left: 0; border-top: 1px solid var(--line); } }
   footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--line); }

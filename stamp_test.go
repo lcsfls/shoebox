@@ -72,3 +72,17 @@ func TestWinAnsi(t *testing.T) {
 }
 
 func mustRead(p string) []byte { b, _ := os.ReadFile(p); return b }
+
+func TestStampLabel(t *testing.T) {
+	s := defaultSettings()
+	if l, f := stampLabel(s, "en", "paid"); l != "Paid" || f != "2 Jan 2006" {
+		t.Errorf("en: %q %q", l, f)
+	}
+	if l, _ := stampLabel(s, "de", "in"); l != "Eingang" {
+		t.Errorf("de: %q", l)
+	}
+	s.StampPaidEn = ""
+	if l, _ := stampLabel(s, "en", "paid"); l != "Paid" {
+		t.Errorf("empty label: %q", l)
+	}
+}

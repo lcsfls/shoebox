@@ -28,10 +28,13 @@ type Settings struct {
 	Learn        bool       `json:"learn"`         // suggest tags and sender from similar filed documents
 	BackupDaily  bool       `json:"backup_daily"`  // copy the database into the archive folder once a day
 	BackupKeep   int        `json:"backup_keep"`   // how many backups to keep
-	StampIn      string     `json:"stamp_in"`      // label of the "received" stamp
-	StampPaid    string     `json:"stamp_paid"`    // label of the "paid" stamp
-	UpdateAuto   bool       `json:"update_auto"`   // install new releases by themselves
-	UpdateHour   int        `json:"update_hour"`   // at this hour of the night
+	StampLang    string     `json:"stamp_lang"`    // de | en: the stamps offered first
+	StampIn      string     `json:"stamp_in"`      // German label of the "received" stamp
+	StampPaid    string     `json:"stamp_paid"`    // German label of the "paid" stamp
+	StampInEn    string     `json:"stamp_in_en"`   // English labels
+	StampPaidEn  string     `json:"stamp_paid_en"`
+	UpdateAuto   bool       `json:"update_auto"` // install new releases by themselves
+	UpdateHour   int        `json:"update_hour"` // at this hour of the night
 	AI           AISettings `json:"ai"`
 }
 
@@ -46,8 +49,11 @@ func defaultSettings() Settings {
 		Learn:        true,
 		BackupKeep:   14,
 		UpdateHour:   3,
+		StampLang:    "de",
 		StampIn:      "Eingang",
 		StampPaid:    "Bezahlt",
+		StampInEn:    "Received",
+		StampPaidEn:  "Paid",
 		AI:           AISettings{TimeoutSec: 180, MaxPages: 5},
 	}
 }

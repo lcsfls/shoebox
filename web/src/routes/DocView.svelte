@@ -9,6 +9,7 @@
   import Pages from '../components/Pages.svelte';
   import PageEditor from '../components/PageEditor.svelte';
   import Stamps from '../components/Stamps.svelte';
+  import { stampConfig } from '../lib/stamps.js';
 
   let { id } = $props();
   let doc = $state(null);
@@ -24,7 +25,7 @@
   let busy = $state(false);
   let error = $state('');
   let stamps = $state([]);
-  let stampLabels = $state({ in: 'Eingang', paid: 'Bezahlt' });
+  let stampCfg = $state(stampConfig(null));
 
   async function load() {
     try {
@@ -32,7 +33,7 @@
       doc = d.doc;
       text = d.text;
       stamps = d.stamps || [];
-      if (st) stampLabels = { in: st.settings.stamp_in || 'Eingang', paid: st.settings.stamp_paid || 'Bezahlt' };
+      if (st) stampCfg = stampConfig(st.settings);
       senders = s.map((x) => x.name);
       tags = t.map((x) => x.name);
       resetForm();
@@ -131,7 +132,7 @@
             {/if}
           </div>
           {#if mayEdit || stamps.length}
-            <Stamps {doc} {stamps} labels={stampLabels} editable={mayEdit} onchange={() => load()} />
+            <Stamps {doc} {stamps} config={stampCfg} editable={mayEdit} onchange={() => load()} />
           {/if}
           {#if showText}<pre class="ocr">{text || 'No text recognized.'}</pre>{/if}
         </div>

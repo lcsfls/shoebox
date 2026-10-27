@@ -9,6 +9,7 @@
   import Pages from '../components/Pages.svelte';
   import Jobs from '../components/Jobs.svelte';
   import Stamps from '../components/Stamps.svelte';
+  import { stampConfig } from '../lib/stamps.js';
 
   let { id = 0 } = $props();
   let list = $state(null);
@@ -21,7 +22,7 @@
   let error = $state('');
   let learned = $state([]);
   let stamps = $state([]);
-  let stampLabels = $state({ in: 'Eingang', paid: 'Bezahlt' });
+  let stampCfg = $state(stampConfig(null));
   let ids = $state([]); // the review inbox in order, for previous / next
   let original = ''; // the form as loaded, to notice changes
 
@@ -62,7 +63,7 @@
       ]);
       doc = d.doc;
       stamps = d.stamps || [];
-      stampLabels = { in: st.settings.stamp_in || 'Eingang', paid: st.settings.stamp_paid || 'Bezahlt' };
+      stampCfg = stampConfig(st.settings);
       senders = s.map((x) => x.name);
       tags = t.map((x) => x.name);
       pattern = st.settings.pattern;
@@ -168,7 +169,7 @@
             <span class="muted small">Will be saved as</span>
             <span class="mono">{path}</span>
           </div>
-          <Stamps {doc} {stamps} labels={stampLabels} onchange={(r) => { doc = r.doc; stamps = r.stamps; }} />
+          <Stamps {doc} {stamps} config={stampCfg} onchange={(r) => { doc = r.doc; stamps = r.stamps; }} />
           <div class="buttons">
             <button type="button" class="btn ghost danger iconbtn" onclick={remove} aria-label="Delete"><Icon name="trash" /></button>
             <button type="button" class="btn" onclick={saveLater} disabled={busy}>Later</button>
