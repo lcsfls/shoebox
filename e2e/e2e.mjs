@@ -245,6 +245,7 @@ try {
   const placed = await d.locator('.dlg .stamp').getAttribute('style');
   const sz = await api(d, `/api/docs/${billDoc.id}/pagesize/1`);
   log('second stamp placed at', placed, 'page', JSON.stringify(sz), 'words', w1.length, JSON.stringify(w1.filter((w) => w.x > 0.6 && w.y < 0.35)));
+  if (await d.getByLabel('Note').inputValue()) problems.push('stamp: the second dialog kept the first one\'s note');
   await d.getByRole('radio', { name: /English/ }).click();
   await d.getByRole('button', { name: 'Stamp it' }).click();
   await d.getByText('Stamped “Paid”').waitFor();

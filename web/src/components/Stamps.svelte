@@ -10,6 +10,7 @@
   let { doc, stamps = [], config = stampConfig(null), editable = true, onchange } = $props();
   let labels = $derived(config[config.lang]);
   let open = $state(''); // kind of the stamp being placed
+  let opened = $state(0); // a fresh dialog each time, even while the last one is still fading out
   // the newest list right away, before the page around reloads
   let fresh = $state(null);
   let list = $derived(fresh ?? stamps);
@@ -31,8 +32,8 @@
   {#if editable}
     <div class="row">
       <span class="muted small">Stamp</span>
-      <button type="button" class="btn small st in" onclick={() => (open = 'in')}><Icon name="check" size={16} />{labels.in}{has('in') ? ' again' : ''}</button>
-      <button type="button" class="btn small st paid" onclick={() => (open = 'paid')}><Icon name="check" size={16} />{labels.paid}{has('paid') ? ' again' : ''}</button>
+      <button type="button" class="btn small st in" onclick={() => { open = 'in'; opened++; }}><Icon name="check" size={16} />{labels.in}{has('in') ? ' again' : ''}</button>
+      <button type="button" class="btn small st paid" onclick={() => { open = 'paid'; opened++; }}><Icon name="check" size={16} />{labels.paid}{has('paid') ? ' again' : ''}</button>
     </div>
   {/if}
   {#if list.length}
@@ -49,7 +50,9 @@
 </div>
 
 {#if open}
+  {#key opened}
   <StampDialog {doc} kind={open} {config} onclose={() => (open = '')} onstamped={(r) => { open = ''; fresh = r.stamps; onchange?.(r); }} />
+  {/key}
 {/if}
 
 <style>
