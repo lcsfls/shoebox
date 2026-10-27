@@ -479,6 +479,9 @@ func (a *App) handlePassword(w http.ResponseWriter, r *http.Request) {
 // --- small helpers ---
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	if w.Header().Get("Cache-Control") == "" {
+		w.Header().Set("Cache-Control", "no-store") // answers change with every edit
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)

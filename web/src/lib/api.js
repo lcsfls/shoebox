@@ -8,7 +8,8 @@ export class ApiError extends Error {
 }
 
 async function request(method, path, body, isForm) {
-  const opts = { method, headers: { 'X-Shoebox': '1' }, credentials: 'same-origin' };
+  // API answers change with every edit: never from the browser's cache
+  const opts = { method, headers: { 'X-Shoebox': '1' }, credentials: 'same-origin', cache: 'no-store' };
   const lib = get(library);
   if (lib) opts.headers['X-Library'] = String(lib);
   if (body !== undefined) {
