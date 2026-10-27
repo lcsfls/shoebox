@@ -16,7 +16,9 @@ fs.mkdirSync(OUT, { recursive: true });
 
 const problems = [];
 const log = (...a) => console.log('·', ...a);
+let lastPage = null; // for a screenshot when something fails
 function watch(page, tag) {
+  lastPage = page;
   page.on('pageerror', (e) => problems.push(`${tag}: page error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !/favicon|404 \(Not Found\)/.test(m.text())) problems.push(`${tag}: console: ${m.text()}`); });
 }
@@ -359,6 +361,7 @@ try {
   await k.getByLabel('Username').fill('anna');
   await k.getByLabel('Password').fill('a-long-password');
   await k.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await k.locator('a[href="/archive"]').first().waitFor();
   await k.goto(L + '/settings/account');
   await k.getByLabel('Name of this device').fill('Test laptop');
   await k.getByRole('button', { name: 'Add a passkey' }).click();
@@ -381,6 +384,7 @@ try {
   if (!sw.ok) problems.push('service worker missing');
 } catch (e) {
   problems.push('FAILED: ' + (e.stack || e.message));
+  try { await lastPage?.screenshot({ path: path.join(OUT, '99-failure.png') }); } catch {}
 } finally {
   await browser.close();
 }
