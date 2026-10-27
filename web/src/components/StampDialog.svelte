@@ -8,7 +8,7 @@
   import Icon from './Icon.svelte';
 
   let { doc, kind = 'in', label = 'Eingang', onstamped, onclose } = $props();
-  const color = kind === 'paid' ? '#B3261E' : '#1F4F9E';
+  let color = $derived(kind === 'paid' ? '#B3261E' : '#1F4F9E');
   const today = new Date();
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -108,7 +108,7 @@
       <div class="sheet">
         <img bind:this={img} src="/api/docs/{doc.id}/page/{page}?v={encodeURIComponent(doc.updated_at)}" alt="Page {page}" draggable="false" />
         {#if size}
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
           <div class="stamp" role="img" tabindex="0" aria-label="The stamp; drag it or move it with the arrow keys"
             style="left:{pos.x * 100}%;top:{pos.y * 100}%;width:{sw * 100}%;height:{sh * 100}%;--c:{color}"
             onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} onkeydown={nudge}>
