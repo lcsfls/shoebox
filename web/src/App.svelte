@@ -3,6 +3,7 @@
   import { api } from './lib/api.js';
   import { user, counts, toasts, can, setLibraries, library, canEdit } from './lib/stores.js';
   import LibrarySwitch from './components/LibrarySwitch.svelte';
+  import DropZone from './components/DropZone.svelte';
   import { route } from './lib/router.js';
   import { loadTags } from './lib/tags.js';
   import Icon from './components/Icon.svelte';
@@ -151,6 +152,7 @@
       {/key}
     </main>
 
+    {#if !fullscreen}<DropZone />{/if}
     {#if !fullscreen}
       <nav class="tabbar" aria-label="Main">
         {#each tabNav as n (n.key)}

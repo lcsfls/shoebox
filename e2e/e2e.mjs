@@ -247,6 +247,27 @@ try {
   await shot(d, '38-stamped');
   log('stamp ok');
 
+  // drag and drop a PDF anywhere onto the page
+  await d.goto(B + '/');
+  await d.getByText('Scan a document').waitFor();
+  const pdfB64 = Buffer.concat([fs.readFileSync(LETTER_PDF), Buffer.from('\n% dropped\n')]).toString('base64');
+  const dt = await d.evaluateHandle((b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const t = new DataTransfer();
+    t.items.add(new File([bytes], 'Dropped-Brief.pdf', { type: 'application/pdf' }));
+    return t;
+  }, pdfB64);
+  await d.dispatchEvent('main', 'dragenter', { dataTransfer: dt });
+  await d.dispatchEvent('main', 'dragover', { dataTransfer: dt });
+  await d.getByText('Drop to upload').waitFor();
+  await shot(d, '39-drop');
+  await d.dispatchEvent('main', 'drop', { dataTransfer: dt });
+  await d.getByText('Uploaded. Reading the text').waitFor();
+  await until(d, async () => (await api(d, '/api/jobs')).some((j) => j.name === 'Dropped-Brief.pdf' && (j.state === 'done' || j.state === 'failed')), 'the dropped file');
+  const jobsNow = await api(d, '/api/jobs');
+  if (!jobsNow.some((j) => j.name === 'Dropped-Brief.pdf' && j.state === 'done')) problems.push(`drop: ${JSON.stringify(jobsNow.map((j) => [j.name, j.state, j.error]))}`);
+  log('drop ok');
+
   // statistics, a backup, rule suggestions, an API token
   await d.goto(B + '/stats');
   await d.getByRole('heading', { name: 'Statistics' }).waitFor();

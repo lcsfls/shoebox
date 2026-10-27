@@ -1,6 +1,8 @@
 <script>
   import { onMount } from 'svelte';
-  import { api, upload } from '../lib/api.js';
+  import { api } from '../lib/api.js';
+  import { uploadFiles, uploading } from '../lib/uploads.js';
+  import { dragging } from '../lib/drop.js';
   import { toast, counts, canEdit } from '../lib/stores.js';
   import LibrarySwitch from '../components/LibrarySwitch.svelte';
   import { fly } from 'svelte/transition';
@@ -14,7 +16,6 @@
 
   let data = $state(null);
   let q = $state('');
-  let uploading = $state(0);
   let fileInput = $state();
 
   async function load() {
@@ -35,19 +36,7 @@
   async function onFiles(e) {
     const files = [...e.target.files];
     e.target.value = '';
-    if (!files.length) return;
-    const fd = new FormData();
-    files.forEach((f) => fd.append('files', f, f.name));
-    uploading = 0.01;
-    try {
-      await upload('/api/upload', fd, (p) => (uploading = Math.max(p, 0.01)));
-      toast(files.length === 1 ? 'Uploaded. Reading the text …' : `${files.length} files uploaded. Reading the text …`);
-      counts.update((c) => ({ ...c, busy: c.busy + files.length }));
-    } catch (err) {
-      toast(err.message, 'error', 6000);
-    } finally {
-      uploading = 0;
-    }
+    await uploadFiles(files);
   }
 </script>
 
@@ -65,8 +54,10 @@
       <span class="scan-icon"><Icon name="scan" size={30} /></span>
       <span class="scan-text"><strong>Scan a document</strong><span>Several pages, straightened automatically</span></span>
     </a>
-    <button class="btn up" onclick={() => fileInput.click()} disabled={uploading > 0}>
-      <Icon name="upload" />{uploading ? `Uploading ${Math.round(uploading * 100)} %` : 'Upload a PDF or photo'}
+    <button class="btn up" class:hover={$dragging} onclick={() => fileInput.click()} disabled={$uploading > 0}>
+      <Icon name="upload" />
+      <span>{$uploading ? `Uploading ${Math.round($uploading * 100)} %` : 'Upload a PDF or photo'}</span>
+      <span class="drop-hint muted small">or drop files here</span>
     </button>
     <input bind:this={fileInput} type="file" accept="application/pdf,image/*" multiple hidden onchange={onFiles} />
   </div>
@@ -140,6 +131,9 @@
   .scan-text strong { font-size: 1.25rem; font-weight: 650; }
   .scan-text span { opacity: 0.85; font-size: 0.92rem; }
   .up { min-height: 52px; border-radius: 14px; }
+  .up.hover { border: 2px dashed var(--accent); background: var(--chip); }
+  .drop-hint { display: none; font-weight: 400; }
+  @media (pointer: fine) { .drop-hint { display: block; } }
   @media (min-width: 700px) {
     .actions { grid-template-columns: 2fr 1fr; }
     .up { min-height: 108px; border-radius: 20px; flex-direction: column; }
