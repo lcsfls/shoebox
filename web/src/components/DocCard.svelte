@@ -4,7 +4,7 @@
   let { doc, href } = $props();
 </script>
 
-<a class="doccard card" {href}>
+<a class="doccard card" {href} ondragstart={(e) => { e.dataTransfer.setData('application/x-shoebox-doc', String(doc.id)); e.dataTransfer.effectAllowed = 'move'; }}>
   <Thumb id={doc.id} updated={fileVersion(doc)} />
   <span class="body">
     <span class="title">{doc.title || 'Untitled'}</span>

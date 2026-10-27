@@ -625,6 +625,20 @@ func TestLibraries(t *testing.T) {
 	if err := a.db.QueryRow(`SELECT library_id FROM docs WHERE path = '2025/12/Brief.pdf'`).Scan(&lib); err != nil || lib != lib2 {
 		t.Errorf("hand-copied file: library %d, %v", lib, err)
 	}
+	// moving a document to another library: readers can't, editors take file, tags and sender along
+	if code, _, _ := do("POST", fmt.Sprintf("/api/docs/%d/move", id), map[string]any{"library": 1}, ben, 0); code != 403 {
+		t.Errorf("a reader moved a document: %d", code)
+	}
+	if code, out, _ := do("POST", fmt.Sprintf("/api/docs/%d/move", id), map[string]any{"library": 1}, anna, 0); code != 200 {
+		t.Fatalf("move: %d %v", code, out)
+	}
+	moved, _ := a.getDoc(id)
+	if _, err := os.Stat(filepath.Join(a.cfg.Archive, moved.Path)); err != nil || moved.LibraryID != 1 || moved.Sender != "Praxis Beispiel" || len(moved.Tags) != 1 {
+		t.Errorf("after the move: %+v %v", moved, err)
+	}
+	if _, err := os.Stat(filepath.Join(priv, d.Path)); err == nil {
+		t.Error("the file stayed in the old library's folder")
+	}
 	// only empty libraries can go
 	if code, _, _ := do("DELETE", fmt.Sprintf("/api/libraries/%d", lib2), nil, anna, 0); code != 400 {
 		t.Errorf("deleted a library with documents: %d", code)

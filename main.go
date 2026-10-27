@@ -239,6 +239,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /api/parse", a.auth(a.handleParse))
 	mux.HandleFunc("POST /api/docs/{id}/pages", a.member(a.handleDocPages))
 	mux.HandleFunc("GET /api/docs/{id}/pagesize/{n}", a.auth(a.handlePageSize))
+	mux.HandleFunc("POST /api/docs/{id}/move", a.member(a.handleDocMove))
 	mux.HandleFunc("POST /api/docs/{id}/stamp", a.member(a.handleDocStamp))
 	mux.HandleFunc("DELETE /api/docs/{id}/stamps", a.member(a.handleDocUnstamp))
 	mux.HandleFunc("GET /api/users", a.admin(a.handleUsers))

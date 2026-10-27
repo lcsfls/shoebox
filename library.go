@@ -423,3 +423,86 @@ func (a *App) handleLibraryMember(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
+
+// handleDocMove puts a document into another library: its file goes into
+// that library's folder (same year/month path) and its tags and sender are
+// matched by name there.
+func (a *App) handleDocMove(w http.ResponseWriter, r *http.Request) {
+	d, ok := a.loadDoc(w, r, true)
+	if !ok {
+		return
+	}
+	var in struct {
+		Library int64 `json:"library"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if in.Library == d.LibraryID {
+		writeJSON(w, 200, map[string]any{"ok": true})
+		return
+	}
+	if a.libRole(userFrom(r), in.Library) != "editor" {
+		fail(w, 403, "You can't add documents to that library.")
+		return
+	}
+	if dup, err := a.docBySHA(in.Library, d.SHA256, false); err == nil && dup != nil {
+		fail(w, 409, "That library already has this document.")
+		return
+	}
+	archiveMu.Lock()
+	defer archiveMu.Unlock()
+	rel := d.Path
+	var src, dst, oldRoot string
+	if d.Status != "inbox" {
+		var err error
+		if oldRoot, err = a.libPath(d.LibraryID); err == nil {
+			src, err = a.inArchive(d.LibraryID, d.Path)
+		}
+		newRoot, err2 := a.libPath(in.Library)
+		if err != nil || err2 != nil {
+			fail(w, 500, "The library folders can't be found.")
+			return
+		}
+		rel = uniquePath(newRoot, d.Path, "")
+		if dst, err = a.inArchive(in.Library, rel); err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		os.MkdirAll(filepath.Dir(dst), 0o750)
+		if err := moveFile(src, dst); err != nil {
+			fail(w, 500, "Can't move the file: "+err.Error())
+			return
+		}
+	}
+	err := func() error {
+		tx, err := a.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		sid, err := senderID(tx, in.Library, d.Sender)
+		if err != nil {
+			return err
+		}
+		if err := setTags(tx, in.Library, d.ID, d.Tags); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE docs SET library_id = ?, sender_id = ?, path = ?, updated_at = ? WHERE id = ?`, in.Library, sid, rel, now(), d.ID); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}()
+	if err != nil {
+		if dst != "" {
+			moveFile(dst, src)
+		}
+		fail(w, 500, err.Error())
+		return
+	}
+	if src != "" {
+		removeEmptyDirs(oldRoot, filepath.Dir(src))
+	}
+	a.dropCache(d.ID)
+	writeJSON(w, 200, map[string]any{"ok": true})
+}

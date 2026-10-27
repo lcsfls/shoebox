@@ -363,6 +363,22 @@ try {
   const someDoc = (await api(d, '/api/docs?limit=1')).docs[0];
   const pdfRes = await d.evaluate(async (id) => (await fetch(`/api/docs/${id}/pdf`, { headers: { 'X-Shoebox': '1' } })).status, someDoc.id);
   if (pdfRes !== 200) problems.push(`library: after the move the PDF answers ${pdfRes}`);
+  // drag a card into the other library
+  await d.goto(B + '/archive');
+  const card = d.locator('a.doccard').first();
+  const movedID = Number((await card.getAttribute('href')).split('/').pop());
+  const box = await card.boundingBox();
+  await d.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await d.mouse.down();
+  await d.mouse.move(box.x + box.width / 2 + 30, box.y + box.height / 2 + 30, { steps: 5 });
+  const target = d.getByRole('button', { name: 'Move to Privat' });
+  await target.waitFor();
+  await shot(d, '43-drag-to-library');
+  await target.hover();
+  await d.mouse.up();
+  await d.getByText('Moved to “Privat”').waitFor();
+  const movedDoc = (await api(d, `/api/docs/${movedID}`)).doc;
+  if (movedDoc?.library_id !== 2 || !fs.existsSync(path.join(path.dirname(ARCHIVE), 'private', movedDoc.path))) problems.push(`drag to library: ${JSON.stringify(movedDoc)}`);
   log('libraries ok');
 
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {

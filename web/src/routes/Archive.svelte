@@ -14,6 +14,12 @@
   let tags = $state([]);
   let senders = $state([]);
   let docs = $state([]);
+  // a card dragged into another library leaves this list
+  $effect(() => {
+    const gone = (e) => (docs = docs.filter((d) => d.id !== e.detail));
+    addEventListener('sb-doc-moved', gone);
+    return () => removeEventListener('sb-doc-moved', gone);
+  });
   let total = $state(0);
   let loading = $state(false);
   let error = $state('');
