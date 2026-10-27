@@ -46,7 +46,7 @@
   {#if keys.length}
     <ul class="rows">
       {#each keys as k (k.id)}
-        <li><Icon name="key" /><span class="grow">{k.name}<span class="muted small"> · added {formatDate(k.created_at.slice(0, 10))}{k.last_used_at ? ` · last used ${formatDate(k.last_used_at.slice(0, 10))}` : ''}</span></span>
+        <li><Icon name="key" /><span class="grow">{k.name}<span class="muted small">&nbsp;· added {formatDate(k.created_at.slice(0, 10))}{k.last_used_at ? ` · last used ${formatDate(k.last_used_at.slice(0, 10))}` : ''}</span></span>
           <button class="btn small ghost danger iconbtn" onclick={() => remove(k)} aria-label="Remove {k.name}"><Icon name="trash" /></button></li>
       {/each}
     </ul>

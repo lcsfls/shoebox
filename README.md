@@ -21,11 +21,16 @@ No Redis, no Celery, no PostgreSQL: one Go binary with a SQLite index, Tesseract
 - **Upload** PDFs and photos, from the phone or the desktop.
 - **Text recognition** with Tesseract: every document becomes a searchable PDF. Optionally a **local AI model** (Baidu's OCR model or any vision model behind an OpenAI-compatible API such as vLLM, Ollama or llama.cpp) reads the pages too, and can suggest title, date, sender and amount.
 - **Sorting on its own.** Sorting rules (any word, all words, exact text, regular expression, fuzzy for OCR typos) set the sender, tags and title. When a rule matches and a date is found, the document is filed without asking; everything else waits in **Review** with the facts already filled in.
+- **It learns from your archive.** A new letter gets the tags and the sender that its most similar filed documents share. Shoebox also **suggests sorting rules**: a line that appears in every letter of one sender and in no other becomes a rule with one click.
+- **Mark it on the page.** On the desktop, the pen next to a field opens the page: drag a box around the date, the amount or the sender, and Shoebox fills the field.
+- **Pages afterwards.** Reorder, turn, remove or re-crop the pages of a document; the first version is kept.
 - **A plain folder you own.** `archive/2026/10/2026-10-24_Stadtwerke_Stromrechnung.pdf`. Title, sender, tags and date are also written into the PDF itself, so the folder makes sense without Shoebox.
 - **The folder works both ways.** Copy a PDF into the archive (for example straight onto the NAS into `2026/01`) and Shoebox adds it to the library, adds a text layer if it has none, and dates it by its folder. Files you move or delete there are followed.
 - **Search** across the text, title, sender and tags, with word beginnings (`strom` finds “Stromrechnung”). Browse by year and month, tag or sender.
 - **Move over from Paperless-ngx** in a few clicks: documents, tags, correspondents, document types, dates, notes, custom fields and matching rules, through its API. Paperless is only read; you can test with 50 documents and run it again.
-- Light and dark, phone and desktop (1080p and up), several accounts for a household or a small office.
+- **Accounts with roles** (admin, member, viewer), **passkeys** for signing in with the phone's or computer's screen lock, and **API tokens** for scripts and network scanners.
+- **Database backups** into the archive folder (the NAS) on a button press or every day.
+- Tag colors, statistics for the curious, light and dark, phone and desktop (1080p and up).
 
 ## Install
 
@@ -68,7 +73,8 @@ docker compose logs shoebox | grep "setup code"
 - **The camera needs HTTPS.** Browsers only allow the live camera on secure pages. Put Shoebox behind your reverse proxy with a certificate (Caddy, nginx, Nginx Proxy Manager; a DNS challenge works for addresses only reachable at home), or give it a certificate with `SB_TLS_CERT` and `SB_TLS_KEY`. On plain HTTP, “Take a photo” opens the camera app instead, and Shoebox straightens that photo just the same.
 - **Install it as an app:** open Shoebox on the phone, then *Add to home screen*. It opens without browser bars and starts on the scanner with a long press on the icon (Android).
 - **The database stays on the local disk** (`SB_DATA`). Only the PDFs go to the archive folder, which may be a network share. SQLite on NFS is not safe.
-- **Backups:** the archive folder is the important part; everything in the database can be rebuilt from it (the PDFs carry their own title, sender, tags and date). For a quick restore, also back up `SB_DATA`.
+- **Backups:** the archive folder is the important part; the PDFs carry their own title, sender, tags and date. *Settings → Storage → Back up now* (or every day) also puts a copy of the database into `archive/.shoebox-backup/`, with notes, rules, accounts and the documents waiting in Review. The same page shows how to restore it.
+- **Passkeys need HTTPS** and a host name (not an IP address), like the camera.
 - **Nothing is deleted right away.** Deleting a document moves the PDF into `SB_DATA/trash`. When Shoebox adds a text layer to a PDF you put into the archive, the untouched original is kept in `SB_DATA/originals`.
 
 ### A local AI model for reading
