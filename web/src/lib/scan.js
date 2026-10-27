@@ -179,33 +179,134 @@ export function warp(src, sw, sh, quad, outW, outH) {
 }
 
 /**
- * Cleans up a page in place. mode: "color" (as photographed),
- * "gray", "doc" (gray, white paper, dark text).
+ * How sharp a picture is: the variance of the Laplacian of its gray values
+ * (blurred or shaken pictures have weak edges, so a low value).
  */
-export function enhance(px, mode) {
+export function sharpness(rgba, w, h) {
+  const g = toGray(rgba, w, h);
+  let sum = 0, sq = 0, n = 0;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w];
+      sum += l; sq += l * l; n++;
+    }
+  }
+  if (!n) return 0;
+  const m = sum / n;
+  return sq / n - m * m;
+}
+
+/**
+ * Evens out the light on a page: the paper's brightness is estimated in
+ * blocks (a high percentile, so text doesn't count), smoothed, and every
+ * pixel is divided by it. A flash's bright spot and dark corners disappear.
+ */
+export function flatten(g, w, h) {
+  const B = Math.max(16, Math.round(Math.max(w, h) / 40));
+  const bw = Math.ceil(w / B), bh = Math.ceil(h / B);
+  const hist = new Uint32Array(bw * bh * 64); // 64 bins per block
+  const cnt = new Uint32Array(bw * bh);
+  for (let y = 0; y < h; y += 2) {
+    const by = (y / B) | 0;
+    for (let x = 0; x < w; x += 2) {
+      const b = by * bw + ((x / B) | 0);
+      hist[b * 64 + (g[y * w + x] >> 2)]++;
+      cnt[b]++;
+    }
+  }
+  const bg = new Float32Array(bw * bh);
+  for (let b = 0; b < bw * bh; b++) {
+    const want = cnt[b] * 0.1; // the brightest 10 %
+    let acc = 0, v = 63;
+    for (; v > 0; v--) { acc += hist[b * 64 + v]; if (acc >= want) break; }
+    bg[b] = v * 4 + 2;
+  }
+  // smooth the blocks (3×3), twice
+  let cur = bg;
+  for (let pass = 0; pass < 2; pass++) {
+    const nx = new Float32Array(bw * bh);
+    for (let y = 0; y < bh; y++) {
+      for (let x = 0; x < bw; x++) {
+        let s = 0, k = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const yy = y + dy, xx = x + dx;
+            if (yy >= 0 && yy < bh && xx >= 0 && xx < bw) { s += cur[yy * bw + xx]; k++; }
+          }
+        }
+        nx[y * bw + x] = s / k;
+      }
+    }
+    cur = nx;
+  }
+  // divide by the background, interpolated between block centres
+  const out = new Uint8ClampedArray(w * h);
+  for (let y = 0; y < h; y++) {
+    const fy = Math.min(Math.max(y / B - 0.5, 0), bh - 1);
+    const y0 = fy | 0, y1 = Math.min(y0 + 1, bh - 1), ty = fy - y0;
+    for (let x = 0; x < w; x++) {
+      const fx = Math.min(Math.max(x / B - 0.5, 0), bw - 1);
+      const x0 = fx | 0, x1 = Math.min(x0 + 1, bw - 1), tx = fx - x0;
+      const top = cur[y0 * bw + x0] * (1 - tx) + cur[y0 * bw + x1] * tx;
+      const bot = cur[y1 * bw + x0] * (1 - tx) + cur[y1 * bw + x1] * tx;
+      const b = Math.max(24, top * (1 - ty) + bot * ty);
+      out[y * w + x] = (g[y * w + x] * 255) / b;
+    }
+  }
+  return out;
+}
+
+/** Unsharp mask on gray values: crisper text strokes. */
+export function sharpen(g, w, h, amount = 0.7) {
+  const blur = new Float32Array(w * h);
+  const tmp = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      tmp[i] = (g[i - (x > 0 ? 1 : 0)] + g[i] + g[i + (x < w - 1 ? 1 : 0)]) / 3;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      blur[i] = (tmp[i - (y > 0 ? w : 0)] + tmp[i] + tmp[i + (y < h - 1 ? w : 0)]) / 3;
+    }
+  }
+  const out = new Uint8ClampedArray(w * h);
+  for (let i = 0; i < w * h; i++) out[i] = g[i] + (g[i] - blur[i]) * amount;
+  return out;
+}
+
+/**
+ * Cleans up a page in place. mode: "color" (as photographed),
+ * "gray" (even light, gray), "doc" (white paper, dark crisp text).
+ */
+export function enhance(px, mode, w = 0, h = 0) {
   if (mode === 'color') return px;
   const n = px.length / 4;
-  const g = new Uint8Array(n);
-  const hist = new Uint32Array(256);
-  for (let i = 0, j = 0; i < n; i++, j += 4) {
-    const v = (px[j] * 77 + px[j + 1] * 150 + px[j + 2] * 29) >> 8;
-    g[i] = v;
-    hist[v]++;
+  let g = new Uint8ClampedArray(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) g[i] = (px[j] * 77 + px[j + 1] * 150 + px[j + 2] * 29) >> 8;
+  if (w && h) {
+    g = flatten(g, w, h);
+    if (mode === 'doc') g = sharpen(g, w, h, 0.6);
   }
   let lo = 0, hi = 255;
   if (mode === 'doc') {
-    // stretch: the darkest 1 % become black, the brightest 30 % (the paper) white
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < n; i++) hist[g[i]]++;
+    // stretch: the darkest 1 % become black, the brightest 40 % (the paper) white
     let acc = 0;
     for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > n * 0.01) { lo = v; break; } }
     acc = 0;
-    for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc > n * 0.3) { hi = v; break; } }
+    for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc > n * 0.4) { hi = v; break; } }
     if (hi - lo < 40) { lo = 0; hi = 255; }
   }
   const lut = new Uint8Array(256);
   for (let v = 0; v < 256; v++) {
     let t = (v - lo) / (hi - lo);
     t = Math.min(Math.max(t, 0), 1);
-    if (mode === 'doc') t = Math.pow(t, 1.4); // darker text strokes
+    if (mode === 'doc') t = Math.pow(t, 1.5); // darker text strokes
     lut[v] = Math.round(t * 255);
   }
   for (let i = 0, j = 0; i < n; i++, j += 4) {

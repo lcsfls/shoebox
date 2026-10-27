@@ -170,6 +170,9 @@ var docKinds = []struct{ word, title string }{
 	{"kontoauszug", "Kontoauszug"}, {"lohnabrechnung", "Lohnabrechnung"}, {"gehaltsabrechnung", "Gehaltsabrechnung"},
 	{"versicherungsschein", "Versicherungsschein"}, {"police", "Police"}, {"quittung", "Quittung"}, {"receipt", "Receipt"},
 	{"bestätigung", "Bestätigung"}, {"lieferschein", "Lieferschein"}, {"abrechnung", "Abrechnung"}, {"zeugnis", "Zeugnis"},
+	{"steuererklärung", "Steuererklärung"}, {"vorauszahlung", "Vorauszahlung"}, {"festsetzung", "Festsetzung"},
+	{"bescheinigung", "Bescheinigung"}, {"zahlungserinnerung", "Zahlungserinnerung"}, {"erinnerung", "Erinnerung"},
+	{"mitteilung", "Mitteilung"}, {"anhörung", "Anhörung"}, {"einladung", "Einladung"}, {"kostenvoranschlag", "Kostenvoranschlag"},
 }
 
 var reSubject = regexp.MustCompile(`(?im)^\s*(?:betreff|betr\.|subject|re|unser zeichen ihr schreiben)\s*:\s*(.{4,90})$`)

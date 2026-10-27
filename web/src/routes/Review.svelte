@@ -19,6 +19,30 @@
   let busy = $state(false);
   let error = $state('');
   let learned = $state([]);
+  let ids = $state([]); // the review inbox in order, for previous / next
+  let original = ''; // the form as loaded, to notice changes
+
+  async function loadIds() {
+    try { ids = (await api.get('/api/docs?status=inbox&sort=added&limit=200')).docs.map((d) => d.id); } catch {}
+  }
+  let pos = $derived(ids.indexOf(id));
+  let prevId = $derived(pos > 0 ? ids[pos - 1] : 0);
+  let nextId = $derived(pos >= 0 && pos < ids.length - 1 ? ids[pos + 1] : 0);
+
+  // switching keeps what was typed (as with "Later")
+  async function go(to) {
+    if (!to || busy) return;
+    if (form && JSON.stringify(form) !== original) {
+      try { await api.patch(`/api/docs/${id}`, patch()); } catch (e) { toast(e.message, 'error'); return; }
+    }
+    navigate(`/review/${to}`, true);
+  }
+  function onKey(e) {
+    if (!id || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.target.closest?.('input, textarea, select, [contenteditable], [role="dialog"]') || document.querySelector('[role="dialog"]')) return;
+    if (e.key === 'ArrowLeft' && prevId) { e.preventDefault(); go(prevId); }
+    if (e.key === 'ArrowRight' && nextId) { e.preventDefault(); go(nextId); }
+  }
 
   async function loadList() {
     const r = await api.get('/api/docs?status=inbox&sort=added&limit=200');
@@ -38,6 +62,7 @@
       tags = t.map((x) => x.name);
       pattern = st.settings.pattern;
       form = { title: doc.title, date: doc.date, sender: doc.sender, amount: amountInput(doc.amount_cents), tags: [...doc.tags], notes: doc.notes };
+      original = JSON.stringify(form);
       learned = [];
       api.get(`/api/docs/${docId}/learned`).then((l) => (learned = l.tags.filter((t) => doc.tags.includes(t)))).catch(() => {});
     } catch (e) {
@@ -46,7 +71,7 @@
   }
 
   $effect(() => {
-    if (id) loadDoc(id);
+    if (id) { loadDoc(id); loadIds(); }
     else loadList().catch((e) => (error = e.message));
   });
 
@@ -94,6 +119,8 @@
   let path = $derived(form && doc ? previewPath(pattern, { ...form, id: doc.id }) : '');
 </script>
 
+<svelte:window onkeydown={onKey} />
+
 {#if !id}
   <div class="page">
     <div class="page-head"><h1>Review</h1></div>
@@ -123,6 +150,13 @@
       <div class="layout">
         <div class="preview"><Pages {doc} /></div>
         <form class="side card" onsubmit={(e) => { e.preventDefault(); fileIt(); }}>
+          {#if ids.length > 1 && pos >= 0}
+            <div class="nav">
+              <span class="muted small">{pos + 1} of {ids.length} to review</span>
+              <button type="button" class="btn small iconbtn" onclick={() => go(prevId)} disabled={!prevId || busy} aria-label="Previous document" title="Previous (←)"><Icon name="back" /></button>
+              <button type="button" class="btn small iconbtn next" onclick={() => go(nextId)} disabled={!nextId || busy} aria-label="Next document" title="Next (→)"><Icon name="back" /></button>
+            </div>
+          {/if}
           {#if doc.rule}<p class="matched small"><Icon name="check" size={16} />Rule “{doc.rule}” matched</p>{/if}
           <DocForm bind:form {senders} {tags} idPrefix="rv" docId={doc.id} pages={doc.pages} updated={doc.updated_at} {learned} />
           <div class="path">
@@ -143,6 +177,9 @@
 {/if}
 
 <style>
+  .nav { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: -4px 0 2px; }
+  .nav span { margin-right: auto; }
+  .nav .next :global(svg) { transform: scaleX(-1); }
   .lead { margin: -6px 0 16px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
   .empty { padding: 22px; display: flex; gap: 14px; align-items: center; color: var(--ink-2); max-width: 640px; }

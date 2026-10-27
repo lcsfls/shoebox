@@ -3,10 +3,10 @@
   import { upload } from '../lib/api.js';
   import { toast, counts } from '../lib/stores.js';
   import { navigate } from '../lib/router.js';
-  import { detectQuad, fullQuad, warp, enhance, outputSize } from '../lib/scan.js';
+  import { detectQuad, fullQuad, warp, enhance, outputSize, sharpness } from '../lib/scan.js';
   import Icon from '../components/Icon.svelte';
 
-  const MAX_SIDE = 2600; // photos are scaled down to this before straightening
+  const MAX_SIDE = 3400; // photos are scaled down to this before straightening
 
   let mode = $state('start'); // start | camera | crop | busy
   let liveCamera = $state(false);
@@ -51,6 +51,9 @@
         audio: false,
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
       });
+      // keep focusing while the phone moves, where the camera allows it
+      const t0 = stream.getVideoTracks()[0];
+      if (t0?.getCapabilities?.().focusMode?.includes('continuous')) t0.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
       liveCamera = true;
       const track = stream.getVideoTracks()[0];
       torchAvailable = !!track?.getCapabilities?.().torch;
@@ -112,14 +115,66 @@
     loop = setTimeout(detectLoop, 280);
   }
 
-  function capture() {
-    if (!video?.videoWidth) return;
-    const s = Math.min(1, MAX_SIDE / Math.max(video.videoWidth, video.videoHeight));
-    const c = document.createElement('canvas');
-    c.width = Math.round(video.videoWidth * s);
-    c.height = Math.round(video.videoHeight * s);
-    c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
-    openCrop(c, liveQuad);
+  let capturing = $state(false);
+
+  // A sharp picture: a real photo from the camera (full resolution, focused)
+  // where the browser offers it, otherwise the sharpest of the next frames
+  // of the video, so a shaking hand doesn't blur the page.
+  async function capture() {
+    if (!video?.videoWidth || capturing) return;
+    capturing = true;
+    const quad = liveQuad;
+    try {
+      const photo = await takePhoto();
+      if (photo) { openCrop(photo, autoQuad(photo)); return; } // the photo may have another shape than the video
+      openCrop(await sharpestFrame(), quad);
+    } finally {
+      capturing = false;
+    }
+  }
+
+  async function takePhoto() {
+    const track = stream?.getVideoTracks()[0];
+    if (!track || typeof ImageCapture === 'undefined') return null;
+    try {
+      const ic = new ImageCapture(track);
+      const blob = await Promise.race([
+        ic.takePhoto(torch ? { fillLightMode: 'off' } : {}),
+        new Promise((_, no) => setTimeout(() => no(new Error('slow')), 4000)),
+      ]);
+      const bmp = await createImageBitmap(blob);
+      if (torch) track.applyConstraints({ advanced: [{ torch: true }] }).catch(() => {}); // some phones switch it off for the photo
+      // only worth it when the photo is bigger than the video picture
+      if (Math.max(bmp.width, bmp.height) <= Math.max(video.videoWidth, video.videoHeight) * 1.2) return null;
+      const s = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * s);
+      c.height = Math.round(bmp.height * s);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      return c;
+    } catch {
+      return null;
+    }
+  }
+
+  async function sharpestFrame() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const s = Math.min(1, MAX_SIDE / Math.max(vw, vh));
+    let best = null, bestScore = -1;
+    const probe = document.createElement('canvas');
+    probe.width = 320; probe.height = Math.round((320 * vh) / vw);
+    const pctx = probe.getContext('2d', { willReadFrequently: true });
+    for (let i = 0; i < 6; i++) {
+      const c = document.createElement('canvas');
+      c.width = Math.round(vw * s);
+      c.height = Math.round(vh * s);
+      c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+      pctx.drawImage(c, 0, 0, probe.width, probe.height);
+      const score = sharpness(pctx.getImageData(0, 0, probe.width, probe.height).data, probe.width, probe.height);
+      if (score > bestScore) { best = c; bestScore = score; }
+      await new Promise((r) => setTimeout(r, 70));
+    }
+    return best;
   }
 
   // photo from the camera app or the gallery (also the way without HTTPS)
@@ -204,14 +259,14 @@
     quad = quad || fullQuad(0);
     const W = canvas.width, H = canvas.height;
     const px = quad.map((p) => ({ x: p.x * (W - 1), y: p.y * (H - 1) }));
-    const { w, h } = outputSize(px, 2200);
+    const { w, h } = outputSize(px, 3000);
     const src = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W, H).data;
     const out = warp(src, W, H, px, w, h);
-    enhance(out, filter);
+    enhance(out, filter, w, h);
     const oc = document.createElement('canvas');
     oc.width = w; oc.height = h;
     oc.getContext('2d').putImageData(new ImageData(out, w, h), 0, 0);
-    const blob = await new Promise((r) => oc.toBlob(r, 'image/jpeg', filter === 'color' ? 0.85 : 0.8));
+    const blob = await new Promise((r) => oc.toBlob(r, 'image/jpeg', 0.86));
     pages = [...pages, { blob, url: URL.createObjectURL(blob) }];
   }
 
@@ -323,7 +378,7 @@
     {:else}
       <button class="btn dark" onclick={() => (liveCamera ? galleryInput : fileInput).click()}>{liveCamera ? 'Gallery' : 'Photo'}</button>
       {#if mode === 'camera'}
-        <button class="shutter" onclick={capture} aria-label="Take photo"><span></span></button>
+        <button class="shutter" onclick={capture} disabled={capturing} aria-busy={capturing} aria-label="Take photo"><span></span></button>
       {:else}
         <span class="shutter-space"></span>
       {/if}

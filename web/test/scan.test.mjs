@@ -86,3 +86,38 @@ test('helpers', () => {
   assert.ok(Math.abs(quadArea(fullQuad(0)) - 1) < 1e-9);
   assert.deepEqual(outputSize([{ x: 0, y: 0 }, { x: 1000, y: 0 }, { x: 1000, y: 4000 }, { x: 0, y: 4000 }], 2000), { w: 500, h: 2000 });
 });
+
+test('flatten evens out a flash spot', async () => {
+  const { flatten } = await import('../src/lib/scan.js');
+  const w = 200, h = 200;
+  const g = new Uint8ClampedArray(w * h);
+  // paper lit from the centre (bright middle, dark corners) with a few dark text lines
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const d = Math.hypot(x - 100, y - 100) / 141;
+      let v = 250 - 140 * d;
+      if (y % 20 < 3 && x > 20 && x < 180) v *= 0.3;
+      g[y * w + x] = v;
+    }
+  }
+  const out = flatten(g, w, h);
+  const before = g[12 * w + 12], paperCorner = out[12 * w + 12], paperMiddle = out[110 * w + 100];
+  assert.ok(Math.abs(paperCorner - paperMiddle) < 45 && paperMiddle - before > 80, `paper ${paperCorner} vs ${paperMiddle} (before ${before})`);
+  assert.ok(out[100 * w + 100] < 120, 'text stays dark');
+});
+
+test('sharpness: a blurred picture scores lower', async () => {
+  const { sharpness } = await import('../src/lib/scan.js');
+  const w = 64, h = 64;
+  const sharp = new Uint8ClampedArray(w * h * 4), soft = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const v = (x >> 2) % 2 ? 230 : 30;
+      const b = 130 + 100 * Math.sin((x / 8) * Math.PI);
+      sharp[i] = sharp[i + 1] = sharp[i + 2] = v;
+      soft[i] = soft[i + 1] = soft[i + 2] = b;
+    }
+  }
+  assert.ok(sharpness(sharp, w, h) > sharpness(soft, w, h) * 5);
+});

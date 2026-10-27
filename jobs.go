@@ -264,7 +264,9 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 		return 0, err
 	}
 	a.db.Exec(`UPDATE docs SET path = ? WHERE id = ?`, name, id)
-	if s.AutoFile && f.Matched && f.Date != "" {
+	// filed without asking only when it's complete: sure of the sender (a
+	// rule or a known name), a date and a title; anything else waits in Review
+	if s.AutoFile && f.Matched && f.Date != "" && strings.TrimSpace(title) != "" {
 		step("Filing")
 		if err := a.fileDoc(ctx, id); err != nil {
 			log.Printf("auto-filing %d: %v (left in the inbox)", id, err)
