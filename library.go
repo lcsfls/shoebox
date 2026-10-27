@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -35,12 +37,12 @@ func validLibRole(r string) bool { return r == "editor" || r == "reader" }
 
 // libPath is the folder of a library.
 func (a *App) libPath(id int64) (string, error) {
-	if id == 1 {
-		return a.cfg.Archive, nil
-	}
 	var p string
 	if err := a.db.QueryRow(`SELECT path FROM libraries WHERE id = ?`, id).Scan(&p); err != nil {
 		return "", errors.New("no such library")
+	}
+	if id == 1 && p == "" {
+		return a.cfg.Archive, nil // until it moves into a folder of its own
 	}
 	if p == "" {
 		return "", errors.New("the library has no folder")
@@ -59,7 +61,7 @@ func (a *App) allLibraries() []Library {
 	for rows.Next() {
 		var l Library
 		rows.Scan(&l.ID, &l.Name, &l.Path, &l.Docs)
-		if l.ID == 1 {
+		if l.ID == 1 && l.Path == "" {
 			l.Path = a.cfg.Archive
 		}
 		out = append(out, l)
@@ -79,7 +81,7 @@ func (a *App) userLibraries(u *User) []Library {
 	for rows.Next() {
 		var l Library
 		rows.Scan(&l.ID, &l.Name, &l.Path, &l.Role, &l.Docs)
-		if l.ID == 1 {
+		if l.ID == 1 && l.Path == "" {
 			l.Path = a.cfg.Archive
 		}
 		if u.Role == "viewer" { // a read-only API token
@@ -182,8 +184,84 @@ func (a *App) handleLibrariesAll(w http.ResponseWriter, r *http.Request) {
 	if libs == nil {
 		libs = []Library{}
 	}
-	writeJSON(w, 200, libs)
+	writeJSON(w, 200, map[string]any{"root": filepath.Clean(a.cfg.Archive), "libraries": libs})
 }
+
+// handleLibraryOwnFolder moves the first library's files from the top of the
+// archive folder into a folder of its own (e.g. archive/shared), so every
+// library is a folder side by side. Paths in the database are relative to
+// the library's folder, so they stay as they are.
+func (a *App) handleLibraryOwnFolder(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Folder string `json:"folder"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	var cur string
+	a.db.QueryRow(`SELECT path FROM libraries WHERE id = 1`).Scan(&cur)
+	if cur != "" {
+		fail(w, 400, "This library already has a folder of its own.")
+		return
+	}
+	name := pathPart(in.Folder)
+	if name == "" || strings.HasPrefix(name, ".") || reYearFolder.MatchString(name) {
+		fail(w, 400, "Pick a folder name like “shared” (not a year).")
+		return
+	}
+	root := filepath.Clean(a.cfg.Archive)
+	target := filepath.Join(root, name)
+	others := map[string]bool{}
+	for _, l := range a.allLibraries() {
+		if l.ID != 1 {
+			others[filepath.Clean(l.Path)] = true
+		}
+	}
+	if others[target] {
+		fail(w, 400, "Another library uses that folder.")
+		return
+	}
+	if ents, err := os.ReadDir(target); err == nil && len(ents) > 0 {
+		fail(w, 400, "That folder exists and isn't empty. Pick another name.")
+		return
+	}
+	archiveMu.Lock()
+	defer archiveMu.Unlock()
+	if err := os.MkdirAll(target, 0o750); err != nil {
+		fail(w, 500, "Can't create the folder: "+err.Error())
+		return
+	}
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		fail(w, 500, err.Error())
+		return
+	}
+	moved := 0
+	for _, e := range ents {
+		p := filepath.Join(root, e.Name())
+		// leave the folder itself, other libraries, backups and hidden files
+		if p == target || others[p] || strings.HasPrefix(e.Name(), ".") || skipDir(e.Name()) {
+			continue
+		}
+		if err := os.Rename(p, filepath.Join(target, e.Name())); err != nil {
+			// put back what moved so far
+			for _, b := range ents {
+				q := filepath.Join(target, b.Name())
+				if _, err := os.Stat(q); err == nil && q != target {
+					os.Rename(q, filepath.Join(root, b.Name()))
+				}
+			}
+			fail(w, 500, "Moving "+e.Name()+" failed, nothing was changed: "+err.Error())
+			return
+		}
+		moved++
+	}
+	a.db.Exec(`UPDATE libraries SET path = ? WHERE id = 1`, target)
+	log.Printf("library 1 moved into %s (%d entries)", target, moved)
+	writeJSON(w, 200, map[string]any{"ok": true, "path": target, "moved": moved})
+}
+
+var reYearFolder = regexp.MustCompile(`^\d{4}$`)
 
 // checkLibraryPath: an absolute folder Shoebox can write to, not its data
 // folder and not the folder of another library. Folders inside another

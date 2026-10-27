@@ -161,6 +161,29 @@ var migrations = []string{
 	// 4: where a stamp sits, so the next one finds another spot
 	`ALTER TABLE stamps ADD COLUMN x REAL NOT NULL DEFAULT 0;
 	ALTER TABLE stamps ADD COLUMN y REAL NOT NULL DEFAULT 0;`,
+
+	// 5: letters written in Shoebox
+	`CREATE TABLE letters(
+		id INTEGER PRIMARY KEY,
+		library_id INTEGER NOT NULL,
+		status TEXT NOT NULL DEFAULT 'draft',   -- draft | final
+		form TEXT NOT NULL DEFAULT 'B',         -- DIN 5008 form A or B
+		lang TEXT NOT NULL DEFAULT 'de',
+		recipient TEXT NOT NULL DEFAULT '',
+		your_ref TEXT NOT NULL DEFAULT '',
+		our_ref TEXT NOT NULL DEFAULT '',
+		date TEXT NOT NULL DEFAULT '',
+		subject TEXT NOT NULL DEFAULT '',
+		salutation TEXT NOT NULL DEFAULT '',
+		body TEXT NOT NULL DEFAULT '',
+		closing TEXT NOT NULL DEFAULT '',
+		signature TEXT NOT NULL DEFAULT '',
+		enclosures TEXT NOT NULL DEFAULT '',
+		doc_id INTEGER REFERENCES docs(id) ON DELETE SET NULL,
+		created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL);
+	CREATE INDEX letters_library ON letters(library_id, status, updated_at);`,
 }
 
 func migrate(db *sql.DB) error {

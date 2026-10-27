@@ -251,6 +251,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/libraries/{id}", a.admin(a.handleLibraryUpdate))
 	mux.HandleFunc("DELETE /api/libraries/{id}", a.admin(a.handleLibraryDelete))
 	mux.HandleFunc("PUT /api/libraries/{id}/members", a.admin(a.handleLibraryMember))
+	mux.HandleFunc("POST /api/libraries/1/own-folder", a.admin(a.handleLibraryOwnFolder))
 	mux.HandleFunc("GET /api/tokens", a.auth(a.handleTokens))
 	mux.HandleFunc("POST /api/tokens", a.auth(a.handleTokenCreate))
 	mux.HandleFunc("DELETE /api/tokens/{id}", a.auth(a.handleTokenDelete))

@@ -7,6 +7,7 @@
   import Icon from '../../components/Icon.svelte';
 
   let libs = $state([]);
+  let root = $state(''); // the archive folder (SB_ARCHIVE)
   let users = $state([]);
   let nl = $state({ name: '', path: '' });
   let pathEdited = $state(false);
@@ -14,7 +15,21 @@
   // year folders of the first library (that one leaves it alone)
   const slug = (n) => n.trim().toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  let base = $derived(libs.find((l) => l.id === 1)?.path || '');
+  let base = $derived(root);
+  let firstAtRoot = $derived(libs.some((l) => l.id === 1 && l.path === root));
+  let ownFolder = $state('shared');
+  let moving = $state(false);
+  async function moveFirst() {
+    if (!confirm(`Move the documents of “${libs.find((l) => l.id === 1)?.name}” into ${root}/${ownFolder}? The year folders move there; other libraries' folders and the backups stay. Do it while nobody copies files into the archive.`)) return;
+    moving = true;
+    try {
+      const r = await api.post('/api/libraries/1/own-folder', { folder: ownFolder });
+      toast(`Moved into ${r.path}`);
+      await load();
+      refreshMine();
+    } catch (err) { toast(err.message, 'error', 8000); }
+    moving = false;
+  }
   $effect(() => {
     if (!pathEdited && base) nl.path = nl.name.trim() ? `${base.replace(/\/+$/, '')}/${slug(nl.name) || 'library'}` : '';
   });
@@ -24,7 +39,10 @@
   let busy = $state(false);
 
   async function load() {
-    [libs, users] = await Promise.all([api.get('/api/libraries/all'), api.get('/api/users')]);
+    const [all, u] = await Promise.all([api.get('/api/libraries/all'), api.get('/api/users')]);
+    libs = all.libraries;
+    root = all.root;
+    users = u;
   }
   // the switcher shows the account's own libraries: refresh it after changes
   async function refreshMine() {
@@ -91,7 +109,16 @@
         {#if l.id !== 1}<button class="btn small ghost danger iconbtn" onclick={() => remove(l)} aria-label="Remove {l.name}" disabled={l.docs > 0} title={l.docs ? 'Only empty libraries can be removed' : 'Remove'}><Icon name="trash" /></button>{/if}
       {/if}
     </div>
-    <p class="small"><span class="mono">{l.path}</span><span class="muted"> · {l.docs} document{l.docs === 1 ? '' : 's'}{l.id === 1 ? ' · folder set with SB_ARCHIVE' : ''}</span></p>
+    <p class="small"><span class="mono">{l.path}</span><span class="muted"> · {l.docs} document{l.docs === 1 ? '' : 's'}</span></p>
+    {#if l.id === 1 && firstAtRoot && libs.length > 1}
+      <div class="own">
+        <p class="small">Its year folders lie directly in the archive folder, next to the other libraries' folders. Give it a folder of its own, so every library is a folder side by side:</p>
+        <div class="inline">
+          <span class="mono small">{root}/</span><input type="text" bind:value={ownFolder} class="mono" aria-label="Folder name" />
+          <button type="button" class="btn small" onclick={moveFirst} disabled={moving || !ownFolder.trim()}>{moving ? 'Moving …' : 'Move it there'}</button>
+        </div>
+      </div>
+    {/if}
     <ul class="rows">
       {#each l.members as m (m.user_id)}
         <li transition:slide={motion({ duration: 160 })}>
@@ -131,6 +158,9 @@
 </form>
 
 <style>
+  .own { background: var(--field); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .own p { margin: 0; }
+  .own input { max-width: 180px; }
   .lib .head { display: flex; align-items: center; gap: 6px; }
   .lib h3 { margin: 0; font-size: 1.05rem; }
   .lib p { margin: 0; overflow-wrap: anywhere; }

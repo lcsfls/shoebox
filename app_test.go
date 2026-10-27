@@ -630,3 +630,44 @@ func TestLibraries(t *testing.T) {
 		t.Errorf("deleted a library with documents: %d", code)
 	}
 }
+
+func TestLibraryOwnFolder(t *testing.T) {
+	a := testApp(t)
+	// a filed document of the first library, and the folder of a second one
+	f, _ := os.Open("testdata/letter.png")
+	img, _ := png.Decode(f)
+	f.Close()
+	var jb bytes.Buffer
+	jpeg.Encode(&jb, img, &jpeg.Options{Quality: 80})
+	imagePDF(t, jb.Bytes(), filepath.Join(a.cfg.DataDir, "inbox", "1.pdf"))
+	id, _ := a.insertDoc(NewDoc{Status: "inbox", Path: "1.pdf", Title: "Rechnung", Sender: "Stadtwerke", Date: "2026-10-24", Text: "Stadtwerke"})
+	if err := a.fileDoc(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(a.cfg.Archive, "private"), 0o750)
+	a.db.Exec(`INSERT INTO libraries(id, name, path, created_at) VALUES(2, 'Private', ?, ?)`, filepath.Join(a.cfg.Archive, "private"), now())
+	os.MkdirAll(filepath.Join(a.cfg.Archive, ".shoebox-backup"), 0o750)
+
+	req := httptest.NewRequest("POST", "/api/libraries/1/own-folder", strings.NewReader(`{"folder":"shared"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	a.handleLibraryOwnFolder(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("move: %d %s", rec.Code, rec.Body.String())
+	}
+	d, _ := a.getDoc(id)
+	p, err := a.docFile(d)
+	if err != nil || !strings.HasPrefix(p, filepath.Join(a.cfg.Archive, "shared")+string(filepath.Separator)) || !fileExists(p) {
+		t.Fatalf("document now at %s (%v)", p, err)
+	}
+	for _, stays := range []string{"private", ".shoebox-backup"} {
+		if !fileExists(filepath.Join(a.cfg.Archive, stays)) {
+			t.Errorf("%s was moved", stays)
+		}
+	}
+	// the folder watcher finds nothing missing
+	a.watcher.scan()
+	if d, _ := a.getDoc(id); d.Status != "filed" {
+		t.Errorf("after the move: %s", d.Status)
+	}
+}

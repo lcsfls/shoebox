@@ -305,7 +305,10 @@ try {
   await d.getByText('Library “Privat” created').waitFor();
   if (!fs.existsSync(privDir)) problems.push('library: folder not created');
   await shot(d, '35-libraries', true);
-  await d.locator('aside select[aria-label="Library"]').selectOption({ label: 'Privat' });
+  await d.locator('aside button[aria-haspopup="listbox"]').click();
+  await d.getByRole('option', { name: /Shared/ }).waitFor();
+  await shot(d, '35b-library-menu');
+  await d.getByRole('option', { name: /Privat/ }).click();
   await d.goto(B + '/archive');
   await d.waitForTimeout(800);
   const privDocs = await api(d, '/api/docs');
@@ -313,9 +316,19 @@ try {
   await d.goto(B + '/');
   await d.getByText('Scan a document').waitFor();
   await shot(d, '36-library-private');
-  await d.locator('aside select[aria-label="Library"]').selectOption({ label: 'Shared' });
+  await d.locator('aside button[aria-haspopup="listbox"]').click();
+  await d.getByRole('option', { name: /Shared/ }).click();
   await d.waitForTimeout(500);
   if ((await api(d, '/api/docs')).total < 3) problems.push('library: back in Shared, the documents are missing');
+  // give "Shared" a folder of its own, next to the others
+  await d.goto(B + '/settings/libraries');
+  d.once('dialog', (dl) => dl.accept());
+  await d.getByRole('button', { name: 'Move it there' }).click();
+  await d.getByText(/Moved into/).waitFor();
+  if (!fs.existsSync(path.join(ARCHIVE, 'shared', '2026'))) problems.push('library: the year folders did not move into shared/');
+  const someDoc = (await api(d, '/api/docs?limit=1')).docs[0];
+  const pdfRes = await d.evaluate(async (id) => (await fetch(`/api/docs/${id}/pdf`, { headers: { 'X-Shoebox': '1' } })).status, someDoc.id);
+  if (pdfRes !== 200) problems.push(`library: after the move the PDF answers ${pdfRes}`);
   log('libraries ok');
 
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {

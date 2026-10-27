@@ -148,3 +148,7 @@ mark { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2p
 :root[data-theme="dark"] .chip[data-c="slate"] { --c-bg: #2C2D33; --c-ink: #D2D4DC; }
 .chip[data-c] { background: var(--c-bg); color: var(--c-ink); }
 .chip[data-c]::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.55; flex: none; }
+
+/* the lists native menus open: in the app's colours (dark mode too) */
+select option { background-color: var(--card); color: var(--ink); }
+select option:checked { background-color: var(--chip); color: var(--chip-ink); }
