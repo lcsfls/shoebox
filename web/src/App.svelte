@@ -15,6 +15,7 @@
   import Stats from './routes/Stats.svelte';
 
   let needsSetup = $state(false);
+  let updateTo = $state(''); // a newer release, shown to admins
   let version = $state('');
   let theme = $state(readTheme());
 
@@ -37,6 +38,7 @@
       version = me.version;
       user.set(me.user);
       if (me.user) loadTags();
+      if (can(me.user, 'admin')) api.get('/api/update').then((u) => (updateTo = u.newer ? u.latest.tag : '')).catch(() => {});
     } catch {
       user.set(null);
     }
@@ -107,6 +109,7 @@
           <button class="btn ghost small" onclick={cycleTheme} aria-label="Theme: {theme}" title="Theme: {theme}">
             <Icon name={theme === 'dark' ? 'moon' : theme === 'light' ? 'sun' : 'auto'} />{theme === 'system' ? 'Auto' : theme === 'dark' ? 'Dark' : 'Light'}
           </button>
+          {#if updateTo}<a class="update small" href="/settings/updates"><Icon name="download" size={16} />Update to {updateTo}</a>{/if}
           <span class="muted small">{$user.name} · {version}</span>
         </div>
       </aside>
@@ -152,6 +155,8 @@
 </div>
 
 <style>
+  .update { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-weight: 600; text-decoration: none; }
+  .update:hover { text-decoration: underline; }
   .boot { min-height: 100dvh; display: grid; place-items: center; color: var(--accent); }
   .shell { min-height: 100dvh; }
   .side { display: none; }

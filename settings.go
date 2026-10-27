@@ -28,6 +28,8 @@ type Settings struct {
 	Learn        bool       `json:"learn"`         // suggest tags and sender from similar filed documents
 	BackupDaily  bool       `json:"backup_daily"`  // copy the database into the archive folder once a day
 	BackupKeep   int        `json:"backup_keep"`   // how many backups to keep
+	UpdateAuto   bool       `json:"update_auto"`   // install new releases by themselves
+	UpdateHour   int        `json:"update_hour"`   // at this hour of the night
 	AI           AISettings `json:"ai"`
 }
 
@@ -41,6 +43,7 @@ func defaultSettings() Settings {
 		WatchOCR:     true,
 		Learn:        true,
 		BackupKeep:   14,
+		UpdateHour:   3,
 		AI:           AISettings{TimeoutSec: 180, MaxPages: 5},
 	}
 }

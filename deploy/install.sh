@@ -86,6 +86,30 @@ SB_ARCHIVE=$ARCHIVE
 EOF
 fi
 
+# updates from the app: Shoebox (no root rights) leaves a request in its data
+# folder; this root service installs the release and restarts it
+grep -q '^SB_UPDATER=' /etc/shoebox.env || printf '# Updates from Settings → Updates (installed by install.sh)\nSB_UPDATER=systemd\n' >> /etc/shoebox.env
+install -d -o shoebox -g shoebox -m 750 "$DATA/update"
+cat > /etc/systemd/system/shoebox-update.path <<EOF
+[Unit]
+Description=Shoebox: watch for update requests from the app
+
+[Path]
+PathExists=$DATA/update/request.json
+
+[Install]
+WantedBy=multi-user.target
+EOF
+cat > /etc/systemd/system/shoebox-update.service <<'EOF'
+[Unit]
+Description=Shoebox: install a new release
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/shoebox.env
+ExecStart=/usr/local/bin/shoebox update-apply
+EOF
+
 cat > /etc/systemd/system/shoebox.service <<'EOF'
 [Unit]
 Description=Shoebox document archive
@@ -106,6 +130,7 @@ EOF
 
 systemctl daemon-reload
 systemctl enable shoebox >/dev/null 2>&1
+systemctl enable --now shoebox-update.path >/dev/null 2>&1
 started="$(date '+%Y-%m-%d %H:%M:%S')"
 systemctl restart shoebox
 

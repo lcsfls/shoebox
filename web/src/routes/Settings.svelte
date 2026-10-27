@@ -9,6 +9,7 @@
   import Users from './settings/Users.svelte';
   import Account from './settings/Account.svelte';
   import Api from './settings/Api.svelte';
+  import Updates from './settings/Updates.svelte';
   import { user, can } from '../lib/stores.js';
 
   let { tab = 'general', version = '', cycleTheme, theme } = $props();
@@ -16,7 +17,7 @@
   const all = [
     ['general', 'General', 'viewer'], ['account', 'Account & passkeys', 'viewer'], ['storage', 'Storage', 'admin'],
     ['ocr', 'Text recognition & AI', 'admin'], ['rules', 'Sorting rules', 'admin'], ['import', 'Import from Paperless', 'admin'],
-    ['names', 'Tags & senders', 'member'], ['users', 'Users', 'admin'], ['api', 'API', 'viewer'],
+    ['names', 'Tags & senders', 'member'], ['users', 'Users', 'admin'], ['api', 'API', 'viewer'], ['updates', 'Updates', 'admin'],
   ];
   let tabs = $derived(all.filter(([, , role]) => can($user, role)));
   let allowed = $derived(tabs.some(([k]) => k === tab));
@@ -35,6 +36,7 @@
       {:else if tab === 'general'}<General {version} {cycleTheme} {theme} />
       {:else if tab === 'account'}<Account />
       {:else if tab === 'api'}<Api />
+      {:else if tab === 'updates'}<Updates />
       {:else if tab === 'storage'}<Storage />
       {:else if tab === 'ocr'}<OCR />
       {:else if tab === 'rules'}<Rules />

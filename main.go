@@ -43,6 +43,7 @@ type App struct {
 	setupCode  string
 	limiter    *limiter
 	ceremonies ceremonies // passkey sign-ins and registrations in progress
+	updates    updater    // what GitHub said about the newest release
 }
 
 func env(k, def string) string {
@@ -60,6 +61,9 @@ func main() {
 			return
 		case "healthcheck":
 			healthcheck()
+			return
+		case "update-apply":
+			updateApply()
 			return
 		}
 	}
@@ -157,6 +161,7 @@ func (a *App) housekeeping(ctx context.Context) {
 		case <-t.C:
 			a.db.Exec(`DELETE FROM sessions WHERE expires_at < ?`, time.Now().Unix())
 			a.maybeBackup()
+			a.maybeAutoUpdate(ctx)
 		}
 	}
 }
@@ -217,6 +222,8 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /api/settings/ai-test", a.admin(a.handleAITest))
 	mux.HandleFunc("GET /api/storage", a.auth(a.handleStorage))
 	mux.HandleFunc("POST /api/storage/rescan", a.admin(a.handleRescan))
+	mux.HandleFunc("GET /api/update", a.admin(a.handleUpdateInfo))
+	mux.HandleFunc("POST /api/update", a.admin(a.handleUpdateStart))
 	mux.HandleFunc("GET /api/backups", a.admin(a.handleBackups))
 	mux.HandleFunc("POST /api/backups", a.admin(a.handleBackupNow))
 	mux.HandleFunc("GET /api/stats", a.auth(a.handleStats))

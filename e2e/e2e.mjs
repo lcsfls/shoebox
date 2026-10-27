@@ -238,7 +238,7 @@ try {
   await shot(d, '19-api', true);
   log('stats, backup, api ok');
 
-  for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules']) {
+  for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {
     await d.goto(B + '/settings/' + tab);
     await d.waitForTimeout(700);
     await shot(d, `12-settings-${tab}`, true);

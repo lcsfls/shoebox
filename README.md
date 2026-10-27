@@ -56,7 +56,7 @@ The container is unprivileged; Shoebox runs as an ordinary user and writes as us
 curl -fsSL https://raw.githubusercontent.com/lcsfls/shoebox/main/deploy/install.sh | sudo bash
 ```
 
-Run it again to update. Settings live in `/etc/shoebox.env`, logs in `journalctl -u shoebox`. Optional: `SHOEBOX_ARCHIVE=/mnt/nas/documents SHOEBOX_LANGS="deu eng fra"` in front of `bash`.
+Updates: *Settings → Updates* shows new releases and installs them with one click (a backup first, then a restart; if the new version doesn't start, Shoebox goes back to the previous one), or every night by itself. Running the script again works too. Settings live in `/etc/shoebox.env`, logs in `journalctl -u shoebox`. Optional: `SHOEBOX_ARCHIVE=/mnt/nas/documents SHOEBOX_LANGS="deu eng fra"` in front of `bash`.
 
 ### Docker
 
