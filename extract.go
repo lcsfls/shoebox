@@ -303,9 +303,9 @@ func lastRune(s string) rune {
 }
 
 // analyze combines rules, known senders and the guessers.
-func (a *App) analyze(text string) Facts {
+func (a *App) analyze(lib int64, text string) Facts {
 	f := Facts{Date: findDate(text, time.Now()), AmountCents: findAmount(text)}
-	rules, _ := a.loadRules()
+	rules, _ := a.loadRules(lib)
 	for _, r := range rules {
 		if !r.Enabled || !r.matches(text) {
 			continue
@@ -327,13 +327,13 @@ func (a *App) analyze(text string) Facts {
 		}
 	}
 	if f.Sender == "" {
-		if s := knownSender(text, a.senderNames()); s != "" {
+		if s := knownSender(text, a.senderNames(lib)); s != "" {
 			f.Sender = s
 			f.Matched = true
 		}
 	}
 	if a.settings().Learn {
-		l := a.learn(text, 0)
+		l := a.learn(lib, text, 0)
 		for _, t := range l.Tags {
 			if !containsFold(f.Tags, t) {
 				f.Tags = append(f.Tags, t)
@@ -362,8 +362,8 @@ func containsFold(list []string, s string) bool {
 	return false
 }
 
-func (a *App) senderNames() []string {
-	rows, err := a.db.Query(`SELECT name FROM senders`)
+func (a *App) senderNames(lib int64) []string {
+	rows, err := a.db.Query(`SELECT name FROM senders WHERE library_id = ?`, lib)
 	if err != nil {
 		return nil
 	}

@@ -28,6 +28,8 @@ type Job struct {
 	DocID   int64     `json:"doc_id,omitempty"`
 	Created time.Time `json:"created"`
 
+	LibraryID int64 `json:"library_id"`
+
 	files  []string // scan: page images; upload: one file; folder: archive-relative path
 	dir    string   // temp dir owned by the job
 	userID int64    // who scanned or uploaded it
@@ -63,6 +65,9 @@ func (j *Jobs) start(ctx context.Context) {
 }
 
 func (j *Jobs) add(job *Job) *Job {
+	if job.LibraryID == 0 {
+		job.LibraryID = 1
+	}
 	j.mu.Lock()
 	j.next++
 	job.ID = j.next
@@ -84,15 +89,16 @@ func (j *Jobs) add(job *Job) *Job {
 	return job
 }
 
-func (j *Jobs) addFolder(rel string) {
+func (j *Jobs) addFolder(lib int64, rel string) {
+	key := fmt.Sprintf("%d:%s", lib, rel)
 	j.mu.Lock()
-	if j.folder[rel] {
+	if j.folder[key] {
 		j.mu.Unlock()
 		return
 	}
-	j.folder[rel] = true
+	j.folder[key] = true
 	j.mu.Unlock()
-	j.add(&Job{Kind: "folder", Name: rel, files: []string{rel}})
+	j.add(&Job{Kind: "folder", Name: rel, files: []string{rel}, LibraryID: lib})
 }
 
 func (j *Jobs) set(job *Job, f func(*Job)) {
@@ -129,9 +135,9 @@ func (j *Jobs) run(ctx context.Context, job *Job) {
 	var err error
 	switch job.Kind {
 	case "folder":
-		id, err = j.app.processFolderFile(ctx, job.files[0], func(s string) { j.set(job, func(x *Job) { x.Step = s }) })
+		id, err = j.app.processFolderFile(ctx, job.LibraryID, job.files[0], func(s string) { j.set(job, func(x *Job) { x.Step = s }) })
 		j.mu.Lock()
-		delete(j.folder, job.files[0])
+		delete(j.folder, fmt.Sprintf("%d:%s", job.LibraryID, job.files[0]))
 		j.mu.Unlock()
 	default:
 		id, err = j.app.processIncoming(ctx, job, func(s string) { j.set(job, func(x *Job) { x.Step = s }) })
@@ -189,7 +195,7 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 		srcSHA = "" // a new scan is never a duplicate of an earlier one
 	}
 	if srcSHA != "" {
-		if d, err := a.docBySHA(srcSHA, false); err == nil {
+		if d, err := a.docBySHA(job.LibraryID, srcSHA, false); err == nil {
 			return d.ID, dupError{d}
 		}
 	}
@@ -227,7 +233,7 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 			text, ocr = t, ocr+"+ai"
 		}
 		if s.AI.Fields {
-			if f, err := a.aiFields(ctx, s.AI, text); err == nil {
+			if f, err := a.aiFields(ctx, s.AI, job.LibraryID, text); err == nil {
 				aiFacts = f
 			} else {
 				log.Printf("AI fields: %v", err)
@@ -237,10 +243,10 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 
 	ocrMillis := time.Since(started).Milliseconds()
 	step("Sorting")
-	f := a.analyze(text)
+	f := a.analyze(job.LibraryID, text)
 	mergeAI(&f, aiFacts)
 	fsha, size, _ := fileSHA(out)
-	if d, err := a.docBySHA(fsha, false); err == nil {
+	if d, err := a.docBySHA(job.LibraryID, fsha, false); err == nil {
 		return d.ID, dupError{d}
 	}
 	title := f.Title
@@ -252,7 +258,7 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 	n := NewDoc{
 		Status: "inbox", SHA256: srcSHA, FileSHA: fsha, Title: title, Sender: f.Sender, Date: f.Date,
 		AmountCents: f.AmountCents, Pages: pdfPages(ctx, out), Size: size, Source: job.Kind, OCR: ocr,
-		Rule: f.Rule, Tags: f.Tags, Text: text, AddedBy: job.userID, OCRMillis: ocrMillis,
+		Rule: f.Rule, Tags: f.Tags, Text: text, AddedBy: job.userID, OCRMillis: ocrMillis, LibraryID: job.LibraryID,
 	}
 	id, err := a.insertDoc(n)
 	if err != nil {
@@ -377,9 +383,14 @@ func uniquePath(root, rel, self string) string {
 	}
 }
 
-func (a *App) inArchive(rel string) (string, error) {
-	p := filepath.Join(a.cfg.Archive, rel)
-	if rel == "" || !strings.HasPrefix(p, filepath.Clean(a.cfg.Archive)+string(os.PathSeparator)) {
+// inArchive turns a path inside a library's folder into an absolute one.
+func (a *App) inArchive(lib int64, rel string) (string, error) {
+	root, err := a.libPath(lib)
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(root, rel)
+	if rel == "" || !strings.HasPrefix(p, filepath.Clean(root)+string(os.PathSeparator)) {
 		return "", errors.New("path outside the archive")
 	}
 	return p, nil
@@ -390,7 +401,7 @@ func (a *App) docFile(d *Doc) (string, error) {
 	if d.Status == "inbox" {
 		return filepath.Join(a.cfg.DataDir, "inbox", filepath.Base(d.Path)), nil
 	}
-	return a.inArchive(d.Path)
+	return a.inArchive(d.LibraryID, d.Path)
 }
 
 // fileDoc moves a document from the inbox into the archive, or renames a filed
@@ -413,13 +424,17 @@ func (a *App) fileDoc(ctx context.Context, id int64) error {
 			log.Printf("metadata for %d: %v", id, err)
 		}
 	}
+	root, err := a.libPath(d.LibraryID)
+	if err != nil {
+		return err
+	}
 	archiveMu.Lock()
 	defer archiveMu.Unlock()
 	rel := d.Path
 	if d.Status == "inbox" || d.Source != "folder" {
-		rel = uniquePath(a.cfg.Archive, targetPath(a.settings().Pattern, d), d.Path)
+		rel = uniquePath(root, targetPath(a.settings().Pattern, d), d.Path)
 	}
-	dst, err := a.inArchive(rel)
+	dst, err := a.inArchive(d.LibraryID, rel)
 	if err != nil {
 		return err
 	}
@@ -430,7 +445,7 @@ func (a *App) fileDoc(ctx context.Context, id int64) error {
 		if err := moveFile(src, dst); err != nil {
 			return fmt.Errorf("can't write to the archive: %w", err)
 		}
-		removeEmptyDirs(a.cfg.Archive, filepath.Dir(src))
+		removeEmptyDirs(root, filepath.Dir(src))
 	}
 	if d.Status != "inbox" {
 		if err := writeMeta(ctx, dst, d); err != nil {
@@ -466,8 +481,8 @@ var yPath = regexp.MustCompile(`(?:^|/)((?:19|20)\d{2})(?:/|$)`)
 // processFolderFile adds a PDF someone copied into the archive (e.g. onto the
 // NAS) to the library. It stays where it is; it only gets a text layer if it
 // has none.
-func (a *App) processFolderFile(ctx context.Context, rel string, step func(string)) (int64, error) {
-	abs, err := a.inArchive(rel)
+func (a *App) processFolderFile(ctx context.Context, lib int64, rel string, step func(string)) (int64, error) {
+	abs, err := a.inArchive(lib, rel)
 	if err != nil {
 		return 0, err
 	}
@@ -479,9 +494,9 @@ func (a *App) processFolderFile(ctx context.Context, rel string, step func(strin
 	if err != nil {
 		return 0, err
 	}
-	if d, err := a.docBySHA(srcSHA, true); err == nil {
+	if d, err := a.docBySHA(lib, srcSHA, true); err == nil {
 		if d.Status == "filed" {
-			if _, err := os.Stat(filepath.Join(a.cfg.Archive, d.Path)); err == nil && d.Path != rel {
+			if p, err := a.inArchive(lib, d.Path); err == nil && d.Path != rel && fileExists(p) {
 				return d.ID, dupError{d}
 			}
 		}
@@ -522,12 +537,12 @@ func (a *App) processFolderFile(ctx context.Context, rel string, step func(strin
 		}
 		os.RemoveAll(dir)
 		if s.AI.Fields {
-			aiFacts, _ = a.aiFields(ctx, s.AI, text)
+			aiFacts, _ = a.aiFields(ctx, s.AI, lib, text)
 		}
 	}
 	step("Sorting")
 	meta := readMeta(ctx, abs)
-	f := a.analyze(text)
+	f := a.analyze(lib, text)
 	mergeAI(&f, aiFacts)
 
 	date := meta.Date
@@ -571,6 +586,11 @@ func (a *App) processFolderFile(ctx context.Context, rel string, step func(strin
 	return a.insertDoc(NewDoc{
 		Status: "filed", Path: rel, SHA256: srcSHA, FileSHA: fsha, Title: title, Sender: sender, Date: date,
 		AmountCents: f.AmountCents, Pages: pdfPages(ctx, abs), Size: size, MTime: st.ModTime().UnixNano(),
-		Source: "folder", OCR: ocr, Rule: f.Rule, Tags: tags, Text: text, OCRMillis: ocrMillis,
+		Source: "folder", OCR: ocr, Rule: f.Rule, Tags: tags, Text: text, OCRMillis: ocrMillis, LibraryID: lib,
 	})
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

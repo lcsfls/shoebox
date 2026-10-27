@@ -255,7 +255,11 @@ func sameOrigin(r *http.Request) bool {
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	n, _ := a.userCount()
 	u := a.currentUser(r)
-	writeJSON(w, 200, map[string]any{"user": u, "needs_setup": n == 0, "version": version})
+	out := map[string]any{"user": u, "needs_setup": n == 0, "version": version}
+	if u != nil {
+		out["libraries"] = a.userLibraries(u)
+	}
+	writeJSON(w, 200, out)
 }
 
 func (a *App) handleSetup(w http.ResponseWriter, r *http.Request) {
@@ -284,6 +288,7 @@ func (a *App) handleSetup(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
+	a.db.Exec(`INSERT OR IGNORE INTO library_members(library_id, user_id, role) VALUES(1, ?, 'editor')`, id)
 	a.setupCode = ""
 	a.startSession(w, r, id)
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -349,16 +354,31 @@ func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleUserAdd(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Username, Name, Password, Role string }
+	var in struct {
+		Username, Name, Password, Role string
+		Libraries                      []struct {
+			ID   int64  `json:"id"`
+			Role string `json:"role"`
+		} `json:"libraries"`
+	}
 	if !readJSON(w, r, &in) {
 		return
 	}
 	if in.Role == "" {
 		in.Role = "member"
 	}
-	if _, err := a.createUser(in.Username, in.Name, in.Password, in.Role); err != nil {
+	id, err := a.createUser(in.Username, in.Name, in.Password, in.Role)
+	if err != nil {
 		fail(w, 400, err.Error())
 		return
+	}
+	if in.Libraries == nil {
+		a.db.Exec(`INSERT OR IGNORE INTO library_members(library_id, user_id, role) VALUES(1, ?, 'editor')`, id)
+	}
+	for _, l := range in.Libraries {
+		if validLibRole(l.Role) {
+			a.db.Exec(`INSERT OR IGNORE INTO library_members(library_id, user_id, role) SELECT id, ?, ? FROM libraries WHERE id = ?`, id, l.Role, l.ID)
+		}
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 }

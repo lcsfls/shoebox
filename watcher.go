@@ -74,16 +74,41 @@ func skipDir(name string) bool {
 }
 
 func (w *Watcher) scan() {
-	a := w.app
-	root := filepath.Clean(a.cfg.Archive)
-	if _, err := os.Stat(root); err != nil {
-		w.setStatus(0, "The archive folder is not reachable: "+err.Error())
-		return
+	libs := w.app.allLibraries()
+	roots := map[string]bool{}
+	for _, l := range libs {
+		roots[filepath.Clean(l.Path)] = true
 	}
-	rows, err := a.db.Query(`SELECT id, path, size, mtime, status FROM docs WHERE status IN ('filed','missing')`)
+	found, missing := 0, 0
+	var errs []string
+	for _, l := range libs {
+		n, m, err := w.scanLibrary(l, roots)
+		found += n
+		missing += m
+		if err != "" {
+			if len(libs) > 1 {
+				err = l.Name + ": " + err
+			}
+			errs = append(errs, err)
+		}
+	}
+	if found > 0 || missing > 0 {
+		log.Printf("archive scan: %d new, %d gone", found, missing)
+	}
+	w.setStatus(found, strings.Join(errs, "; "))
+}
+
+// scanLibrary looks through one library's folder. Folders that belong to
+// another library (one may sit inside another) are left to that one.
+func (w *Watcher) scanLibrary(l Library, roots map[string]bool) (int, int, string) {
+	a := w.app
+	root := filepath.Clean(l.Path)
+	if _, err := os.Stat(root); err != nil {
+		return 0, 0, "The folder is not reachable: " + err.Error()
+	}
+	rows, err := a.db.Query(`SELECT id, path, size, mtime, status FROM docs WHERE library_id = ? AND status IN ('filed','missing')`, l.ID)
 	if err != nil {
-		w.setStatus(0, err.Error())
-		return
+		return 0, 0, err.Error()
 	}
 	byPath := map[string]known{}
 	for rows.Next() {
@@ -105,7 +130,7 @@ func (w *Watcher) scan() {
 			return nil // unreadable folder: skip it
 		}
 		if e.IsDir() {
-			if p != root && skipDir(e.Name()) {
+			if p != root && (skipDir(e.Name()) || roots[filepath.Clean(p)]) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -147,16 +172,12 @@ func (w *Watcher) scan() {
 	archiveMu.Unlock()
 
 	for _, rel := range newFiles {
-		a.jobs.addFolder(rel)
+		a.jobs.addFolder(l.ID, rel)
 	}
 	if walkErr != nil {
-		w.setStatus(len(newFiles), walkErr.Error())
-		return
+		return len(newFiles), missing, walkErr.Error()
 	}
-	if len(newFiles) > 0 || missing > 0 {
-		log.Printf("archive scan: %d new, %d gone", len(newFiles), missing)
-	}
-	w.setStatus(len(newFiles), "")
+	return len(newFiles), missing, ""
 }
 
 func (w *Watcher) setStatus(found int, errMsg string) {

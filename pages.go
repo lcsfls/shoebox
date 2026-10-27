@@ -22,9 +22,8 @@ type pagePlan struct {
 }
 
 func (a *App) handleDocPages(w http.ResponseWriter, r *http.Request) {
-	d, err := a.getDoc(pathID(r, "id"))
-	if err != nil {
-		fail(w, 404, "No such document.")
+	d, ok := a.loadDoc(w, r, true)
+	if !ok {
 		return
 	}
 	if err := r.ParseMultipartForm(8 << 20); err != nil {

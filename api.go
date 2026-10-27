@@ -20,15 +20,19 @@ import (
 const maxUpload = 200 << 20
 
 func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
+	lib, ok := a.currentLib(w, r, false)
+	if !ok {
+		return
+	}
 	var inbox, filed, missing int
-	a.db.QueryRow(`SELECT count(*) FROM docs WHERE status = 'inbox'`).Scan(&inbox)
-	a.db.QueryRow(`SELECT count(*) FROM docs WHERE status = 'filed'`).Scan(&filed)
-	a.db.QueryRow(`SELECT count(*) FROM docs WHERE status = 'missing'`).Scan(&missing)
-	review, _, _ := a.listDocs(DocQuery{Status: "inbox", Sort: "added", Limit: 12})
-	recent, _, _ := a.listDocs(DocQuery{Status: "filed", Sort: "added", Limit: 8})
+	a.db.QueryRow(`SELECT count(*) FROM docs WHERE library_id = ? AND status = 'inbox'`, lib).Scan(&inbox)
+	a.db.QueryRow(`SELECT count(*) FROM docs WHERE library_id = ? AND status = 'filed'`, lib).Scan(&filed)
+	a.db.QueryRow(`SELECT count(*) FROM docs WHERE library_id = ? AND status = 'missing'`, lib).Scan(&missing)
+	review, _, _ := a.listDocs(DocQuery{Library: lib, Status: "inbox", Sort: "added", Limit: 12})
+	recent, _, _ := a.listDocs(DocQuery{Library: lib, Status: "filed", Sort: "added", Limit: 8})
 	busy := 0
 	for _, j := range a.jobs.snapshot() {
-		if j.State == "queued" || j.State == "working" {
+		if j.LibraryID == lib && (j.State == "queued" || j.State == "working") {
 			busy++
 		}
 	}
@@ -36,10 +40,14 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDocs(w http.ResponseWriter, r *http.Request) {
+	lib, ok := a.currentLib(w, r, false)
+	if !ok {
+		return
+	}
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
-	docs, total, err := a.listDocs(DocQuery{Q: q.Get("q"), Status: q.Get("status"), Year: q.Get("year"), Month: q.Get("month"),
+	docs, total, err := a.listDocs(DocQuery{Library: lib, Q: q.Get("q"), Status: q.Get("status"), Year: q.Get("year"), Month: q.Get("month"),
 		Tag: q.Get("tag"), Sender: q.Get("sender"), Sort: q.Get("sort"), Limit: limit, Offset: offset})
 	if err != nil {
 		fail(w, 400, "Search failed: "+err.Error())
@@ -49,23 +57,21 @@ func (a *App) handleDocs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDoc(w http.ResponseWriter, r *http.Request) {
-	d, err := a.getDoc(pathID(r, "id"))
-	if err != nil {
-		fail(w, 404, "Document not found.")
+	d, ok := a.loadDoc(w, r, false)
+	if !ok {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"doc": d, "text": a.docText(d.ID)})
 }
 
 func (a *App) handleDocUpdate(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r, "id")
-	var p DocPatch
-	if !readJSON(w, r, &p) {
+	d, ok := a.loadDoc(w, r, true)
+	if !ok {
 		return
 	}
-	d, err := a.getDoc(id)
-	if err != nil {
-		fail(w, 404, "Document not found.")
+	id := d.ID
+	var p DocPatch
+	if !readJSON(w, r, &p) {
 		return
 	}
 	if err := a.patchDoc(id, p); err != nil {
@@ -85,7 +91,11 @@ func (a *App) handleDocUpdate(w http.ResponseWriter, r *http.Request) {
 
 // handleDocFile files a document from the review inbox (with the last edits).
 func (a *App) handleDocFile(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r, "id")
+	d0, ok := a.loadDoc(w, r, true)
+	if !ok {
+		return
+	}
+	id := d0.ID
 	var p DocPatch
 	if r.ContentLength > 0 && !readJSON(w, r, &p) {
 		return
@@ -105,9 +115,8 @@ func (a *App) handleDocFile(w http.ResponseWriter, r *http.Request) {
 // handleDocDelete moves the PDF to the trash folder on the data disk and
 // removes it from the library. Nothing is destroyed right away.
 func (a *App) handleDocDelete(w http.ResponseWriter, r *http.Request) {
-	d, err := a.getDoc(pathID(r, "id"))
-	if err != nil {
-		fail(w, 404, "Document not found.")
+	d, ok := a.loadDoc(w, r, true)
+	if !ok {
 		return
 	}
 	if src, err := a.docFile(d); err == nil {
@@ -118,8 +127,8 @@ func (a *App) handleDocDelete(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "Could not move the file to the trash: "+err.Error())
 			return
 		}
-		if d.Status != "inbox" {
-			removeEmptyDirs(a.cfg.Archive, filepath.Dir(src))
+		if root, err := a.libPath(d.LibraryID); err == nil && d.Status != "inbox" {
+			removeEmptyDirs(root, filepath.Dir(src))
 		}
 		archiveMu.Unlock()
 	}
@@ -130,9 +139,8 @@ func (a *App) handleDocDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDocPDF(w http.ResponseWriter, r *http.Request) {
-	d, err := a.getDoc(pathID(r, "id"))
-	if err != nil {
-		http.NotFound(w, r)
+	d, ok := a.loadDoc(w, r, false)
+	if !ok {
 		return
 	}
 	p, err := a.docFile(d)
@@ -198,9 +206,8 @@ func (a *App) pageImage(ctx context.Context, d *Doc, page int, width int, name s
 }
 
 func (a *App) serveImage(w http.ResponseWriter, r *http.Request, page, width int, name string) {
-	d, err := a.getDoc(pathID(r, "id"))
-	if err != nil {
-		http.NotFound(w, r)
+	d, ok := a.loadDoc(w, r, false)
+	if !ok {
 		return
 	}
 	if page < 1 || (d.Pages > 0 && page > d.Pages) {
@@ -296,6 +303,10 @@ func imagesOnly(name string, head []byte) (string, bool) {
 
 // handleScan: the pages of one document, photographed and straightened in the browser.
 func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
+	lib, ok := a.currentLib(w, r, true)
+	if !ok {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
 	if err := r.ParseMultipartForm(1 << 20); err != nil {
 		fail(w, 400, "The upload is too large or broken.")
@@ -315,12 +326,16 @@ func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	job := a.jobs.add(&Job{Kind: "scan", Name: fmt.Sprintf("Scan, %d page(s)", len(pages)), files: pages, dir: dir, userID: userFrom(r).ID})
+	job := a.jobs.add(&Job{Kind: "scan", Name: fmt.Sprintf("Scan, %d page(s)", len(pages)), files: pages, dir: dir, userID: userFrom(r).ID, LibraryID: lib})
 	writeJSON(w, 200, map[string]any{"job": job.ID})
 }
 
 // handleUpload: PDFs and photos; each file becomes its own document.
 func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
+	lib, ok := a.currentLib(w, r, true)
+	if !ok {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
 	if err := r.ParseMultipartForm(1 << 20); err != nil {
 		fail(w, 400, "The upload is too large or broken.")
@@ -356,7 +371,7 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, err.Error())
 			return
 		}
-		job := a.jobs.add(&Job{Kind: "upload", Name: clean(fh.Filename, 200), files: []string{p}, dir: dir, userID: userFrom(r).ID})
+		job := a.jobs.add(&Job{Kind: "upload", Name: clean(fh.Filename, 200), files: []string{p}, dir: dir, userID: userFrom(r).ID, LibraryID: lib})
 		ids = append(ids, job.ID)
 	}
 	if len(ids) == 0 {
@@ -366,8 +381,19 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"jobs": ids})
 }
 
+// handleJobs lists the work on the libraries the account belongs to.
 func (a *App) handleJobs(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, a.jobs.snapshot())
+	mine := map[int64]bool{}
+	for _, l := range a.userLibraries(userFrom(r)) {
+		mine[l.ID] = true
+	}
+	out := []Job{}
+	for _, j := range a.jobs.snapshot() {
+		if mine[j.LibraryID] {
+			out = append(out, j)
+		}
+	}
+	writeJSON(w, 200, out)
 }
 
 func (a *App) handleJobDismiss(w http.ResponseWriter, r *http.Request) {
@@ -378,8 +404,12 @@ func (a *App) handleJobDismiss(w http.ResponseWriter, r *http.Request) {
 // --- browsing ---
 
 func (a *App) handleTree(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(`SELECT substr(doc_date,1,4), substr(doc_date,6,2), count(*) FROM docs WHERE status = 'filed'
-		GROUP BY 1, 2 ORDER BY 1 DESC, 2 DESC`)
+	lib, ok := a.currentLib(w, r, false)
+	if !ok {
+		return
+	}
+	rows, err := a.db.Query(`SELECT substr(doc_date,1,4), substr(doc_date,6,2), count(*) FROM docs WHERE status = 'filed' AND library_id = ?
+		GROUP BY 1, 2 ORDER BY 1 DESC, 2 DESC`, lib)
 	if err != nil {
 		fail(w, 500, err.Error())
 		return
@@ -424,8 +454,8 @@ type named struct {
 	Count int    `json:"count"`
 }
 
-func (a *App) listNamed(w http.ResponseWriter, q string) {
-	rows, err := a.db.Query(q)
+func (a *App) listNamed(w http.ResponseWriter, q string, args ...any) {
+	rows, err := a.db.Query(q, args...)
 	if err != nil {
 		fail(w, 500, err.Error())
 		return
@@ -441,17 +471,46 @@ func (a *App) listNamed(w http.ResponseWriter, q string) {
 }
 
 func (a *App) handleTags(w http.ResponseWriter, r *http.Request) {
+	lib, ok := a.currentLib(w, r, false)
+	if !ok {
+		return
+	}
 	a.listNamed(w, `SELECT t.id, t.name, t.color, (SELECT count(*) FROM doc_tags dt JOIN docs d ON d.id = dt.doc_id
-		WHERE dt.tag_id = t.id AND d.status = 'filed') FROM tags t ORDER BY t.name COLLATE NOCASE`)
+		WHERE dt.tag_id = t.id AND d.status = 'filed') FROM tags t WHERE t.library_id = ? ORDER BY t.name COLLATE NOCASE`, lib)
 }
 
 func (a *App) handleSenders(w http.ResponseWriter, r *http.Request) {
+	lib, ok := a.currentLib(w, r, false)
+	if !ok {
+		return
+	}
 	a.listNamed(w, `SELECT s.id, s.name, '', (SELECT count(*) FROM docs d WHERE d.sender_id = s.id AND d.status = 'filed')
-		FROM senders s ORDER BY s.name COLLATE NOCASE`)
+		FROM senders s WHERE s.library_id = ? ORDER BY s.name COLLATE NOCASE`, lib)
+}
+
+// namedAccess: a tag or sender may be changed by editors of its library.
+func (a *App) namedAccess(w http.ResponseWriter, r *http.Request, table string, id int64) bool {
+	var lib int64
+	if a.db.QueryRow(`SELECT library_id FROM `+table+` WHERE id = ?`, id).Scan(&lib) != nil {
+		fail(w, 404, "Not found.")
+		return false
+	}
+	switch a.libRole(userFrom(r), lib) {
+	case "editor":
+		return true
+	case "":
+		fail(w, 404, "Not found.")
+	default:
+		fail(w, 403, "You can only read in this library.")
+	}
+	return false
 }
 
 // rename; renaming onto an existing name merges the two
 func (a *App) renameNamed(w http.ResponseWriter, r *http.Request, table string) {
+	if !a.namedAccess(w, r, table, pathID(r, "id")) {
+		return
+	}
 	var in struct{ Name string }
 	if !readJSON(w, r, &in) {
 		return
@@ -472,7 +531,7 @@ func (a *App) renameTo(w http.ResponseWriter, id int64, table, newName string) {
 	}
 	defer tx.Rollback()
 	var other int64
-	tx.QueryRow(`SELECT id FROM `+table+` WHERE name = ? AND id <> ?`, name, id).Scan(&other)
+	tx.QueryRow(`SELECT id FROM `+table+` WHERE name = ? AND id <> ? AND library_id = (SELECT library_id FROM `+table+` WHERE id = ?)`, name, id, id).Scan(&other)
 	var affected []int64
 	collect := func(q string, args ...any) {
 		rows, err := tx.Query(q, args...)
@@ -537,6 +596,9 @@ func nearestTagColor(hex string) string {
 }
 
 func (a *App) handleTagUpdate(w http.ResponseWriter, r *http.Request) {
+	if !a.namedAccess(w, r, "tags", pathID(r, "id")) {
+		return
+	}
 	var in struct {
 		Name  *string `json:"name"`
 		Color *string `json:"color"`
@@ -568,6 +630,9 @@ func (a *App) handleSenderUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleTagDelete(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r, "id")
+	if !a.namedAccess(w, r, "tags", id) {
+		return
+	}
 	var docs []int64
 	rows, _ := a.db.Query(`SELECT doc_id FROM doc_tags WHERE tag_id = ?`, id)
 	for rows != nil && rows.Next() {
@@ -587,6 +652,9 @@ func (a *App) handleTagDelete(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleSenderDelete(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r, "id")
+	if !a.namedAccess(w, r, "senders", id) {
+		return
+	}
 	a.db.Exec(`UPDATE docs SET sender_id = NULL WHERE sender_id = ?`, id)
 	a.db.Exec(`DELETE FROM senders WHERE id = ?`, id)
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -621,6 +689,26 @@ func (a *App) handleStorage(w http.ResponseWriter, r *http.Request) {
 	a.db.QueryRow(`SELECT count(*) FROM docs WHERE status = 'missing'`).Scan(&missing)
 	res["missing"] = missing
 	res["uid"] = os.Getuid()
+	var libs []map[string]any
+	for _, l := range a.allLibraries() {
+		if l.ID == 1 {
+			continue
+		}
+		m := map[string]any{"id": l.ID, "name": l.Name, "path": l.Path, "docs": l.Docs, "fs": mountType(l.Path)}
+		if err := syscall.Statfs(l.Path, &st); err == nil {
+			m["free"] = int64(st.Bavail) * int64(st.Bsize)
+			m["total"] = int64(st.Blocks) * int64(st.Bsize)
+		}
+		probe := filepath.Join(l.Path, ".shoebox-write-test")
+		if err := os.WriteFile(probe, []byte("ok"), 0o640); err != nil {
+			m["writable"], m["write_error"] = false, err.Error()
+		} else {
+			os.Remove(probe)
+			m["writable"] = true
+		}
+		libs = append(libs, m)
+	}
+	res["libraries"] = libs
 	writeJSON(w, 200, res)
 }
 

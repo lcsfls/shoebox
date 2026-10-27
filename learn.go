@@ -108,7 +108,7 @@ type neighbour struct {
 	weight float64
 }
 
-func (a *App) neighbours(text string, exclude int64) []neighbour {
+func (a *App) neighbours(lib int64, text string, exclude int64) []neighbour {
 	terms := a.keyTerms(text, 30)
 	if len(terms) < 3 {
 		return nil
@@ -121,8 +121,8 @@ func (a *App) neighbours(text string, exclude int64) []neighbour {
 		COALESCE((SELECT group_concat(t.name, char(31)) FROM doc_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.doc_id = d.id), ''),
 		bm25(docs_fts, 1.0, 1.0, 0.0, 1.0)
 		FROM docs_fts JOIN docs d ON d.id = docs_fts.rowid LEFT JOIN senders s ON s.id = d.sender_id
-		WHERE docs_fts MATCH ? AND d.status = 'filed' AND d.id <> ?
-		ORDER BY bm25(docs_fts, 1.0, 1.0, 0.0, 1.0) LIMIT ?`, strings.Join(q, " OR "), exclude, learnNeighbours)
+		WHERE docs_fts MATCH ? AND d.status = 'filed' AND d.id <> ? AND d.library_id = ?
+		ORDER BY bm25(docs_fts, 1.0, 1.0, 0.0, 1.0) LIMIT ?`, strings.Join(q, " OR "), exclude, lib, learnNeighbours)
 	if err != nil {
 		return nil
 	}
@@ -151,8 +151,8 @@ type Learned struct {
 	Sender string   `json:"sender"`
 }
 
-func (a *App) learn(text string, exclude int64) Learned {
-	ns := a.neighbours(text, exclude)
+func (a *App) learn(lib int64, text string, exclude int64) Learned {
+	ns := a.neighbours(lib, text, exclude)
 	out := Learned{Tags: []string{}}
 	if len(ns) < learnMinVotes {
 		return out
@@ -194,8 +194,11 @@ func (a *App) learn(text string, exclude int64) Learned {
 
 // GET /api/docs/{id}/learned: what similar documents suggest (Review shows it).
 func (a *App) handleDocLearned(w http.ResponseWriter, r *http.Request) {
-	id := pathID(r, "id")
-	writeJSON(w, 200, a.learn(a.docText(id), id))
+	d, ok := a.loadDoc(w, r, false)
+	if !ok {
+		return
+	}
+	writeJSON(w, 200, a.learn(d.LibraryID, a.docText(d.ID), d.ID))
 }
 
 // --- rule suggestions ---
@@ -248,8 +251,8 @@ func candidateLines(text string) map[string]bool {
 	return out
 }
 
-func (a *App) ruleSuggestions() []RuleSuggestion {
-	rules, _ := a.loadRules()
+func (a *App) ruleSuggestions(lib int64) []RuleSuggestion {
+	rules, _ := a.loadRules(lib)
 	covered := map[string]bool{}
 	for _, r := range rules {
 		if r.Sender != "" {
@@ -274,7 +277,7 @@ func (a *App) ruleSuggestions() []RuleSuggestion {
 	rows, err := a.db.Query(`SELECT COALESCE(s.name,''), f.body,
 		COALESCE((SELECT group_concat(t.name, char(31)) FROM doc_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.doc_id = d.id), '')
 		FROM docs d JOIN docs_fts f ON f.rowid = d.id LEFT JOIN senders s ON s.id = d.sender_id
-		WHERE d.status = 'filed' ORDER BY d.id DESC LIMIT 3000`)
+		WHERE d.status = 'filed' AND d.library_id = ? ORDER BY d.id DESC LIMIT 3000`, lib)
 	if err != nil {
 		return nil
 	}
@@ -373,7 +376,11 @@ func (a *App) ruleSuggestions() []RuleSuggestion {
 }
 
 func (a *App) handleRuleSuggestions(w http.ResponseWriter, r *http.Request) {
-	out := a.ruleSuggestions()
+	lib, ok := a.currentLib(w, r, true)
+	if !ok {
+		return
+	}
+	out := a.ruleSuggestions(lib)
 	if out == nil {
 		out = []RuleSuggestion{}
 	}
@@ -399,8 +406,8 @@ func (a *App) handleRuleSuggestionDismiss(w http.ResponseWriter, r *http.Request
 }
 
 // tagNames lists the most used tags.
-func (a *App) tagNames(n int) []string {
-	rows, err := a.db.Query(`SELECT t.name FROM tags t LEFT JOIN doc_tags dt ON dt.tag_id = t.id GROUP BY t.id ORDER BY count(dt.doc_id) DESC, t.name LIMIT ?`, n)
+func (a *App) tagNames(lib int64, n int) []string {
+	rows, err := a.db.Query(`SELECT t.name FROM tags t LEFT JOIN doc_tags dt ON dt.tag_id = t.id WHERE t.library_id = ? GROUP BY t.id ORDER BY count(dt.doc_id) DESC, t.name LIMIT ?`, lib, n)
 	if err != nil {
 		return nil
 	}

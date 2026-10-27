@@ -26,8 +26,8 @@ type Rule struct {
 
 var ruleKinds = map[string]bool{"any": true, "all": true, "exact": true, "regex": true, "fuzzy": true}
 
-func (a *App) loadRules() ([]*Rule, error) {
-	rows, err := a.db.Query(`SELECT id, name, kind, pattern, nocase, sender, tags, title, position, enabled FROM rules ORDER BY position, id`)
+func (a *App) loadRules(lib int64) ([]*Rule, error) {
+	rows, err := a.db.Query(`SELECT id, name, kind, pattern, nocase, sender, tags, title, position, enabled FROM rules WHERE library_id = ? ORDER BY position, id`, lib)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,11 @@ func fuzzyContains(text, pat string) bool {
 }
 
 func (a *App) handleRules(w http.ResponseWriter, r *http.Request) {
-	rules, err := a.loadRules()
+	lib, ok := a.currentLib(w, r, false)
+	if !ok {
+		return
+	}
+	rules, err := a.loadRules(lib)
 	if err != nil {
 		fail(w, 500, err.Error())
 		return
@@ -148,6 +152,10 @@ func (a *App) handleRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRuleSave(w http.ResponseWriter, r *http.Request) {
+	lib, ok := a.currentLib(w, r, true)
+	if !ok {
+		return
+	}
 	var in Rule
 	if !readJSON(w, r, &in) {
 		return
@@ -187,17 +195,21 @@ func (a *App) handleRuleSave(w http.ResponseWriter, r *http.Request) {
 		tb = []byte("[]")
 	}
 	if id := pathID(r, "id"); id > 0 {
-		a.db.Exec(`UPDATE rules SET name=?, kind=?, pattern=?, nocase=?, sender=?, tags=?, title=?, position=?, enabled=? WHERE id=?`,
-			in.Name, in.Kind, in.Pattern, in.NoCase, in.Sender, string(tb), in.Title, in.Position, in.Enabled, id)
+		a.db.Exec(`UPDATE rules SET name=?, kind=?, pattern=?, nocase=?, sender=?, tags=?, title=?, position=?, enabled=? WHERE id=? AND library_id=?`,
+			in.Name, in.Kind, in.Pattern, in.NoCase, in.Sender, string(tb), in.Title, in.Position, in.Enabled, id, lib)
 	} else {
-		a.db.Exec(`INSERT INTO rules(name, kind, pattern, nocase, sender, tags, title, position, enabled) VALUES(?,?,?,?,?,?,?,?,?)`,
-			in.Name, in.Kind, in.Pattern, in.NoCase, in.Sender, string(tb), in.Title, in.Position, in.Enabled)
+		a.db.Exec(`INSERT INTO rules(name, kind, pattern, nocase, sender, tags, title, position, enabled, library_id) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+			in.Name, in.Kind, in.Pattern, in.NoCase, in.Sender, string(tb), in.Title, in.Position, in.Enabled, lib)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
 func (a *App) handleRuleDelete(w http.ResponseWriter, r *http.Request) {
-	a.db.Exec(`DELETE FROM rules WHERE id = ?`, pathID(r, "id"))
+	lib, ok := a.currentLib(w, r, true)
+	if !ok {
+		return
+	}
+	a.db.Exec(`DELETE FROM rules WHERE id = ? AND library_id = ?`, pathID(r, "id"), lib)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -210,10 +222,19 @@ func (a *App) handleRuleTest(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
+	lib, ok := a.currentLib(w, r, false)
+	if !ok {
+		return
+	}
 	text := in.Text
 	if in.DocID > 0 {
+		d, err := a.getDoc(in.DocID)
+		if err != nil || d.LibraryID != lib {
+			fail(w, 404, "No such document.")
+			return
+		}
 		text = a.docText(in.DocID)
 	}
-	f := a.analyze(text)
+	f := a.analyze(lib, text)
 	writeJSON(w, 200, map[string]any{"date": f.Date, "amount_cents": f.AmountCents, "sender": f.Sender, "title": f.Title, "tags": f.Tags, "rule": f.Rule})
 }

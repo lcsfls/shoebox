@@ -442,14 +442,14 @@ func TestLearningAndSuggestions(t *testing.T) {
 		a.insertDoc(NewDoc{Status: "filed", Path: fmt.Sprintf("v%d.pdf", i), Title: "Versicherung " + extra, Sender: "Beispiel Versicherung",
 			Tags: []string{"Versicherung"}, Text: "Beispiel Versicherung AG\nIhr Versicherungsschein " + extra + "\nBeitrag Police Laufzeit Selbstbeteiligung"})
 	}
-	l := a.learn(letter("Irgendwer", "Mai"), 0)
+	l := a.learn(1, letter("Irgendwer", "Mai"), 0)
 	if !containsFold(l.Tags, "Wasser") || containsFold(l.Tags, "Versicherung") {
 		t.Errorf("learned tags %v", l.Tags)
 	}
 	if l.Sender != "Wasserwerk Beispiel" {
 		t.Errorf("learned sender %q", l.Sender)
 	}
-	sg := a.ruleSuggestions()
+	sg := a.ruleSuggestions(1)
 	var found *RuleSuggestion
 	for i := range sg {
 		if sg[i].Sender == "Wasserwerk Beispiel" {
@@ -477,5 +477,153 @@ func TestLearningAndSuggestions(t *testing.T) {
 	}
 	if n := len(a.listBackups()); n != 1 {
 		t.Errorf("%d backups listed", n)
+	}
+}
+
+func TestLibraries(t *testing.T) {
+	a := testApp(t)
+	srv := httptest.NewServer(a.routes())
+	defer srv.Close()
+	c := srv.Client()
+	do := func(method, path string, body any, cookie *http.Cookie, lib int64) (int, map[string]any, []any) {
+		b, _ := json.Marshal(body)
+		req, _ := http.NewRequest(method, srv.URL+path, bytes.NewReader(b))
+		req.Header.Set("Origin", srv.URL)
+		req.Header.Set("Content-Type", "application/json")
+		if lib > 0 {
+			req.Header.Set("X-Library", fmt.Sprint(lib))
+		}
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var raw any
+		json.NewDecoder(res.Body).Decode(&raw)
+		m, _ := raw.(map[string]any)
+		l, _ := raw.([]any)
+		return res.StatusCode, m, l
+	}
+	session := func(path string, body any) *http.Cookie {
+		b, _ := json.Marshal(body)
+		req, _ := http.NewRequest("POST", srv.URL+path, bytes.NewReader(b))
+		req.Header.Set("Origin", srv.URL)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := c.Do(req)
+		if err != nil || res.StatusCode != 200 {
+			t.Fatalf("%s: %v %v", path, err, res.StatusCode)
+		}
+		for _, ck := range res.Cookies() {
+			if ck.Name == sessionCookie {
+				return ck
+			}
+		}
+		t.Fatal("no session")
+		return nil
+	}
+	anna := session("/api/setup", map[string]string{"code": a.setupCode, "username": "anna", "password": "long-password-1"})
+	// ben only gets the shared library
+	if code, out, _ := do("POST", "/api/users", map[string]any{"username": "ben", "password": "long-password-2", "role": "member"}, anna, 0); code != 200 {
+		t.Fatalf("add ben: %d %v", code, out)
+	}
+	ben := session("/api/login", map[string]string{"username": "ben", "password": "long-password-2"})
+
+	// a private library for anna, in its own folder
+	priv := filepath.Join(t.TempDir(), "anna-private")
+	code, out, _ := do("POST", "/api/libraries", map[string]string{"name": "Anna privat", "path": priv}, anna, 0)
+	if code != 200 {
+		t.Fatalf("create library: %d %v", code, out)
+	}
+	lib2 := int64(out["id"].(float64))
+	if code, _, _ := do("POST", "/api/libraries", map[string]string{"name": "Bad", "path": a.cfg.DataDir}, anna, 0); code != 400 {
+		t.Errorf("library in the data folder accepted: %d", code)
+	}
+	if code, _, _ := do("POST", "/api/libraries", map[string]string{"name": "Ben", "path": priv + "2"}, ben, 0); code != 403 {
+		t.Errorf("non-admin created a library: %d", code)
+	}
+
+	// a document in the private library, filed into its folder
+	inbox := filepath.Join(a.cfg.DataDir, "inbox", "99.pdf")
+	f, _ := os.Open("testdata/letter.png")
+	img, _ := png.Decode(f)
+	f.Close()
+	var jb bytes.Buffer
+	jpeg.Encode(&jb, img, &jpeg.Options{Quality: 80})
+	imagePDF(t, jb.Bytes(), inbox)
+	id, err := a.insertDoc(NewDoc{LibraryID: lib2, Status: "inbox", Path: "99.pdf", Title: "Arztrechnung", Sender: "Praxis Beispiel", Date: "2026-05-04", Tags: []string{"Privat"}, Text: "Praxis Beispiel Rechnung"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.fileDoc(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	d, _ := a.getDoc(id)
+	if _, err := os.Stat(filepath.Join(priv, d.Path)); err != nil || !strings.HasPrefix(d.Path, "2026/05/") {
+		t.Fatalf("filed into %q (in %s): %v", d.Path, priv, err)
+	}
+	if _, err := os.Stat(filepath.Join(a.cfg.Archive, d.Path)); err == nil {
+		t.Error("the private document landed in the shared folder too")
+	}
+
+	// ben sees nothing of it
+	if code, _, _ := do("GET", fmt.Sprintf("/api/docs/%d", id), nil, ben, 0); code != 404 {
+		t.Errorf("ben opens the private document: %d", code)
+	}
+	if code, _, _ := do("GET", fmt.Sprintf("/api/docs/%d/pdf", id), nil, ben, 0); code != 404 {
+		t.Errorf("ben downloads the private document: %d", code)
+	}
+	if code, _, _ := do("GET", "/api/docs", nil, ben, lib2); code != 403 {
+		t.Errorf("ben lists the private library: %d", code)
+	}
+	_, out, _ = do("GET", "/api/docs?q=praxis", nil, ben, 1)
+	if out["total"].(float64) != 0 {
+		t.Errorf("the private document shows in the shared library: %v", out)
+	}
+	_, out, _ = do("GET", "/api/docs?q=praxis", nil, anna, lib2)
+	if out["total"].(float64) != 1 {
+		t.Errorf("anna doesn't find her document: %v", out)
+	}
+	// tags belong to their library
+	_, _, tags := do("GET", "/api/tags", nil, anna, 1)
+	for _, x := range tags {
+		if x.(map[string]any)["name"] == "Privat" {
+			t.Error("the private tag shows in the shared library")
+		}
+	}
+	// share it with ben as a reader: he reads, but can't change
+	var benID int64
+	a.db.QueryRow(`SELECT id FROM users WHERE username = 'ben'`).Scan(&benID)
+	if code, _, _ := do("PUT", fmt.Sprintf("/api/libraries/%d/members", lib2), map[string]any{"user_id": benID, "role": "reader"}, anna, 0); code != 200 {
+		t.Fatalf("share: %d", code)
+	}
+	if code, _, _ := do("GET", fmt.Sprintf("/api/docs/%d", id), nil, ben, 0); code != 200 {
+		t.Errorf("reader can't open: %d", code)
+	}
+	if code, _, _ := do("PATCH", fmt.Sprintf("/api/docs/%d", id), map[string]string{"title": "x"}, ben, 0); code != 403 {
+		t.Errorf("reader changed a document: %d", code)
+	}
+	if code, _, _ := do("POST", "/api/rules", map[string]any{"kind": "any", "pattern": "x", "nocase": true, "enabled": true}, ben, lib2); code != 403 {
+		t.Errorf("reader added a rule: %d", code)
+	}
+	// the folder watcher looks through both folders, each into its own library
+	os.MkdirAll(filepath.Join(priv, "2025", "12"), 0o755)
+	imagePDF(t, jb.Bytes(), filepath.Join(priv, "2025", "12", "Brief.pdf"))
+	old := time.Now().Add(-time.Minute)
+	os.Chtimes(filepath.Join(priv, "2025", "12", "Brief.pdf"), old, old)
+	a.watcher.scan()
+	ctx := context.Background()
+	for len(a.jobs.queue) > 0 {
+		a.jobs.run(ctx, <-a.jobs.queue)
+	}
+	var lib int64
+	if err := a.db.QueryRow(`SELECT library_id FROM docs WHERE path = '2025/12/Brief.pdf'`).Scan(&lib); err != nil || lib != lib2 {
+		t.Errorf("hand-copied file: library %d, %v", lib, err)
+	}
+	// only empty libraries can go
+	if code, _, _ := do("DELETE", fmt.Sprintf("/api/libraries/%d", lib2), nil, anna, 0); code != 400 {
+		t.Errorf("deleted a library with documents: %d", code)
 	}
 }

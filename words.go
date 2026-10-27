@@ -54,9 +54,8 @@ func parseBBox(s string) []pageWord {
 }
 
 func (a *App) handleDocWords(w http.ResponseWriter, r *http.Request) {
-	d, err := a.getDoc(pathID(r, "id"))
-	if err != nil {
-		http.NotFound(w, r)
+	d, ok := a.loadDoc(w, r, false)
+	if !ok {
 		return
 	}
 	n, _ := strconv.Atoi(r.PathValue("n"))

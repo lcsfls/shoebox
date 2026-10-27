@@ -26,6 +26,7 @@ type Importer struct {
 	st     ImportStatus
 	cancel context.CancelFunc
 	userID int64 // who started the import
+	lib    int64 // the library it imports into
 }
 
 type ImportStatus struct {
@@ -210,6 +211,10 @@ func (a *App) handleImportCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleImportStart(w http.ResponseWriter, r *http.Request) {
+	lib, ok := a.currentLib(w, r, true)
+	if !ok {
+		return
+	}
 	var in struct {
 		URL, Token string
 		Limit      int  `json:"limit"`
@@ -234,6 +239,7 @@ func (a *App) handleImportStart(w http.ResponseWriter, r *http.Request) {
 	im.cancel = cancel
 	im.st = ImportStatus{Running: true, Errors: []string{}}
 	im.userID = userFrom(r).ID
+	im.lib = lib
 	im.mu.Unlock()
 	go im.run(ctx, c, in.Limit, in.Original)
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -298,11 +304,11 @@ func (im *Importer) run(ctx context.Context, c *plClient, limit int, original bo
 	tagName, corrName, typeName, fieldName := map[int]string{}, map[int]string{}, map[int]string{}, map[int]string{}
 	for _, t := range tags {
 		tagName[t.ID] = t.Name
-		a.db.Exec(`INSERT INTO tags(name, color) VALUES(?, ?) ON CONFLICT(name) DO NOTHING`, t.Name, nearestTagColor(t.Color))
+		a.db.Exec(`INSERT INTO tags(library_id, name, color) VALUES(?, ?, ?) ON CONFLICT(library_id, name) DO NOTHING`, im.lib, t.Name, nearestTagColor(t.Color))
 	}
 	for _, t := range corrs {
 		corrName[t.ID] = t.Name
-		senderID(a.db, t.Name)
+		senderID(a.db, im.lib, t.Name)
 	}
 	for _, t := range types {
 		typeName[t.ID] = "type:" + t.Name
@@ -321,7 +327,7 @@ func (im *Importer) run(ctx context.Context, c *plClient, limit int, original bo
 			return
 		}
 		var n int
-		a.db.QueryRow(`SELECT count(*) FROM rules WHERE name = ? AND pattern = ?`, "Paperless: "+it.Name, it.Match).Scan(&n)
+		a.db.QueryRow(`SELECT count(*) FROM rules WHERE name = ? AND pattern = ? AND library_id = ?`, "Paperless: "+it.Name, it.Match, im.lib).Scan(&n)
 		if n > 0 {
 			return
 		}
@@ -329,8 +335,8 @@ func (im *Importer) run(ctx context.Context, c *plClient, limit int, original bo
 		if tags == nil {
 			tb = []byte("[]")
 		}
-		a.db.Exec(`INSERT INTO rules(name, kind, pattern, nocase, sender, tags, title, position, enabled) VALUES(?,?,?,?,?,?,?,100,1)`,
-			"Paperless: "+it.Name, kind, it.Match, it.NoCase, sender, string(tb), "")
+		a.db.Exec(`INSERT INTO rules(name, kind, pattern, nocase, sender, tags, title, position, enabled, library_id) VALUES(?,?,?,?,?,?,?,100,1,?)`,
+			"Paperless: "+it.Name, kind, it.Match, it.NoCase, sender, string(tb), "", im.lib)
 		im.update(func(s *ImportStatus) { s.Rules++ })
 	}
 	for _, t := range tags {
@@ -358,7 +364,7 @@ func (im *Importer) run(ctx context.Context, c *plClient, limit int, original bo
 		}
 		im.update(func(s *ImportStatus) { s.Current = pd.Title })
 		var exists int
-		a.db.QueryRow(`SELECT count(*) FROM docs WHERE paperless_id = ?`, pd.ID).Scan(&exists)
+		a.db.QueryRow(`SELECT count(*) FROM docs WHERE paperless_id = ? AND library_id = ?`, pd.ID, im.lib).Scan(&exists)
 		if exists > 0 {
 			im.update(func(s *ImportStatus) { s.Skipped++ })
 			continue
@@ -423,7 +429,7 @@ func (im *Importer) importDoc(ctx context.Context, c *plClient, pd plDoc, origin
 	if err != nil {
 		return err
 	}
-	if d, err := a.docBySHA(sha, false); err == nil {
+	if d, err := a.docBySHA(im.lib, sha, false); err == nil {
 		return dupError{d}
 	}
 	text := pd.Content
@@ -477,7 +483,7 @@ func (im *Importer) importDoc(ctx context.Context, c *plClient, pd plDoc, origin
 	notes := pd.noteTexts()
 	f2 := findAmount(text)
 	id, err := a.insertDoc(NewDoc{
-		Status: "inbox", SHA256: sha, FileSHA: sha, Title: title, Sender: sender, Date: date, AddedBy: im.userID,
+		Status: "inbox", SHA256: sha, FileSHA: sha, Title: title, Sender: sender, Date: date, AddedBy: im.userID, LibraryID: im.lib,
 		AmountCents: f2, Pages: pdfPages(ctx, tmp), Size: size, Source: "paperless", OCR: ocr,
 		Notes: strings.Join(notes, "\n\n"), Fields: fields, Tags: tags, Text: text, PaperlessID: int64(pd.ID),
 	})

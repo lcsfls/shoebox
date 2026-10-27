@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 )
@@ -103,6 +105,44 @@ var migrations = []string{
 		created_at TEXT NOT NULL,
 		last_used_at TEXT NOT NULL DEFAULT '');
 	CREATE VIRTUAL TABLE IF NOT EXISTS docs_vocab USING fts5vocab(docs_fts, 'row');`,
+
+	// 2: libraries. Everything so far goes into library 1 (its folder is
+	// SB_ARCHIVE), shared by all accounts; viewers become readers there.
+	// Tags and senders get unique names per library, so their tables are
+	// rebuilt (runs with foreign keys off, see migrate).
+	`CREATE TABLE libraries(
+		id INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		path TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL);
+	CREATE TABLE library_members(
+		library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		role TEXT NOT NULL,
+		PRIMARY KEY(library_id, user_id));
+	INSERT INTO libraries(id, name, path, created_at) VALUES(1, 'Shared', '', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+	INSERT INTO library_members(library_id, user_id, role) SELECT 1, id, CASE role WHEN 'viewer' THEN 'reader' ELSE 'editor' END FROM users;
+	UPDATE users SET role = 'member' WHERE role = 'viewer';
+	ALTER TABLE docs ADD COLUMN library_id INTEGER NOT NULL DEFAULT 1;
+	CREATE INDEX docs_library ON docs(library_id, status, doc_date);
+	CREATE TABLE senders_new(
+		id INTEGER PRIMARY KEY,
+		library_id INTEGER NOT NULL DEFAULT 1,
+		name TEXT NOT NULL COLLATE NOCASE,
+		UNIQUE(library_id, name));
+	INSERT INTO senders_new(id, library_id, name) SELECT id, 1, name FROM senders;
+	DROP TABLE senders;
+	ALTER TABLE senders_new RENAME TO senders;
+	CREATE TABLE tags_new(
+		id INTEGER PRIMARY KEY,
+		library_id INTEGER NOT NULL DEFAULT 1,
+		name TEXT NOT NULL COLLATE NOCASE,
+		color TEXT NOT NULL DEFAULT '',
+		UNIQUE(library_id, name));
+	INSERT INTO tags_new(id, library_id, name, color) SELECT id, 1, name, color FROM tags;
+	DROP TABLE tags;
+	ALTER TABLE tags_new RENAME TO tags;
+	ALTER TABLE rules ADD COLUMN library_id INTEGER NOT NULL DEFAULT 1;`,
 }
 
 func migrate(db *sql.DB) error {
@@ -113,22 +153,44 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		return err
 	}
-	for i := v; i < len(migrations); i++ {
-		tx, err := db.Begin()
+	if v < len(migrations) {
+		// one connection with foreign keys off, so tables can be rebuilt
+		// without cascading deletes (the SQLite way to change constraints)
+		ctx := context.Background()
+		conn, err := db.Conn(ctx)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(migrations[i]); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("database update %d: %w", i+1, err)
-		}
-		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
-			tx.Rollback()
+		defer conn.Close()
+		if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
 			return err
 		}
-		if err := tx.Commit(); err != nil {
-			return err
+		for i := v; i < len(migrations); i++ {
+			tx, err := conn.BeginTx(ctx, nil)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(migrations[i]); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("database update %d: %w", i+1, err)
+			}
+			if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, i+1)); err != nil {
+				tx.Rollback()
+				return err
+			}
+			if err := tx.Commit(); err != nil {
+				return err
+			}
 		}
+		rows, err := conn.QueryContext(ctx, `PRAGMA foreign_key_check`)
+		if err == nil {
+			bad := rows.Next()
+			rows.Close()
+			if bad {
+				log.Printf("database update: some references don't match (PRAGMA foreign_key_check)")
+			}
+		}
+		conn.ExecContext(ctx, `PRAGMA foreign_keys = ON`)
 	}
 	// tags imported before the palette existed carry Paperless' hex colors
 	rows, err := db.Query(`SELECT id, color FROM tags WHERE color LIKE '#%'`)
@@ -169,6 +231,7 @@ type Doc struct {
 	Rule        string            `json:"rule"`
 	Tags        []string          `json:"tags"`
 	AddedBy     string            `json:"added_by"`
+	LibraryID   int64             `json:"library_id"`
 	Snippet     string            `json:"snippet,omitempty"`
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
@@ -179,7 +242,7 @@ type Doc struct {
 const docCols = `d.id, d.status, d.path, d.title, COALESCE(s.name,''), COALESCE(d.sender_id,0), d.doc_date, d.amount_cents,
 	d.pages, d.size, d.source, d.ocr, d.notes, d.fields, d.rule, d.created_at, d.updated_at, d.sha256, d.mtime,
 	COALESCE((SELECT group_concat(t.name, char(31)) FROM doc_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.doc_id = d.id), ''),
-	COALESCE((SELECT COALESCE(NULLIF(u.name,''), u.username) FROM users u WHERE u.id = d.added_by), '')`
+	COALESCE((SELECT COALESCE(NULLIF(u.name,''), u.username) FROM users u WHERE u.id = d.added_by), ''), d.library_id`
 
 type scanner interface{ Scan(...any) error }
 
@@ -188,7 +251,7 @@ func scanDoc(row scanner, extra ...any) (*Doc, error) {
 	var amount sql.NullInt64
 	var fields, tags string
 	dest := []any{&d.ID, &d.Status, &d.Path, &d.Title, &d.Sender, &d.SenderID, &d.Date, &amount,
-		&d.Pages, &d.Size, &d.Source, &d.OCR, &d.Notes, &fields, &d.Rule, &d.CreatedAt, &d.UpdatedAt, &d.SHA256, &d.MTime, &tags, &d.AddedBy}
+		&d.Pages, &d.Size, &d.Source, &d.OCR, &d.Notes, &fields, &d.Rule, &d.CreatedAt, &d.UpdatedAt, &d.SHA256, &d.MTime, &tags, &d.AddedBy, &d.LibraryID}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
 		return nil, err
 	}
@@ -212,25 +275,25 @@ func (a *App) getDoc(id int64) (*Doc, error) {
 // docBySHA finds a document by the hash of its incoming or stored file.
 // Documents whose file went missing count only with withMissing (the
 // archive scan uses that to follow files moved by hand).
-func (a *App) docBySHA(sha string, withMissing bool) (*Doc, error) {
-	q := `SELECT ` + docCols + ` FROM docs d LEFT JOIN senders s ON s.id = d.sender_id WHERE (d.sha256 = ?1 OR d.file_sha = ?1)`
+func (a *App) docBySHA(lib int64, sha string, withMissing bool) (*Doc, error) {
+	q := `SELECT ` + docCols + ` FROM docs d LEFT JOIN senders s ON s.id = d.sender_id WHERE (d.sha256 = ?1 OR d.file_sha = ?1) AND d.library_id = ?2`
 	if !withMissing {
 		q += ` AND d.status <> 'missing'`
 	}
-	return scanDoc(a.db.QueryRow(q+` ORDER BY d.status = 'missing' LIMIT 1`, sha))
+	return scanDoc(a.db.QueryRow(q+` ORDER BY d.status = 'missing' LIMIT 1`, sha, lib))
 }
 
 // senderID finds or creates a sender. Empty name: no sender.
-func senderID(tx execer, name string) (sql.NullInt64, error) {
+func senderID(tx execer, lib int64, name string) (sql.NullInt64, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return sql.NullInt64{}, nil
 	}
-	if _, err := tx.Exec(`INSERT INTO senders(name) VALUES(?) ON CONFLICT(name) DO NOTHING`, name); err != nil {
+	if _, err := tx.Exec(`INSERT INTO senders(library_id, name) VALUES(?, ?) ON CONFLICT(library_id, name) DO NOTHING`, lib, name); err != nil {
 		return sql.NullInt64{}, err
 	}
 	var id int64
-	err := tx.QueryRow(`SELECT id FROM senders WHERE name = ?`, name).Scan(&id)
+	err := tx.QueryRow(`SELECT id FROM senders WHERE library_id = ? AND name = ?`, lib, name).Scan(&id)
 	return sql.NullInt64{Int64: id, Valid: err == nil}, err
 }
 
@@ -239,7 +302,7 @@ type execer interface {
 	QueryRow(string, ...any) *sql.Row
 }
 
-func setTags(tx execer, docID int64, tags []string) error {
+func setTags(tx execer, lib, docID int64, tags []string) error {
 	if _, err := tx.Exec(`DELETE FROM doc_tags WHERE doc_id = ?`, docID); err != nil {
 		return err
 	}
@@ -250,10 +313,10 @@ func setTags(tx execer, docID int64, tags []string) error {
 			continue
 		}
 		seen[strings.ToLower(t)] = true
-		if _, err := tx.Exec(`INSERT INTO tags(name) VALUES(?) ON CONFLICT(name) DO NOTHING`, t); err != nil {
+		if _, err := tx.Exec(`INSERT INTO tags(library_id, name) VALUES(?, ?) ON CONFLICT(library_id, name) DO NOTHING`, lib, t); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO doc_tags(doc_id, tag_id) SELECT ?, id FROM tags WHERE name = ?`, docID, t); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO doc_tags(doc_id, tag_id) SELECT ?, id FROM tags WHERE library_id = ? AND name = ?`, docID, lib, t); err != nil {
 			return err
 		}
 	}
@@ -290,6 +353,7 @@ func (a *App) docText(id int64) string {
 
 // NewDoc is what the processing pipeline hands over.
 type NewDoc struct {
+	LibraryID   int64
 	AddedBy     int64
 	OCRMillis   int64
 	Status      string
@@ -319,7 +383,10 @@ func (a *App) insertDoc(n NewDoc) (int64, error) {
 		return 0, err
 	}
 	defer tx.Rollback()
-	sid, err := senderID(tx, n.Sender)
+	if n.LibraryID == 0 {
+		n.LibraryID = 1
+	}
+	sid, err := senderID(tx, n.LibraryID, n.Sender)
 	if err != nil {
 		return 0, err
 	}
@@ -336,14 +403,14 @@ func (a *App) insertDoc(n NewDoc) (int64, error) {
 	}
 	ts := now()
 	res, err := tx.Exec(`INSERT INTO docs(status, path, sha256, file_sha, title, sender_id, doc_date, amount_cents, pages, size, mtime,
-		source, ocr, notes, fields, rule, paperless_id, created_at, updated_at, added_by, ocr_ms) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		source, ocr, notes, fields, rule, paperless_id, created_at, updated_at, added_by, ocr_ms, library_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		n.Status, n.Path, n.SHA256, n.FileSHA, n.Title, sid, n.Date, amount, n.Pages, n.Size, n.MTime,
-		n.Source, n.OCR, n.Notes, string(fields), n.Rule, pid, ts, ts, nullID(n.AddedBy), n.OCRMillis)
+		n.Source, n.OCR, n.Notes, string(fields), n.Rule, pid, ts, ts, nullID(n.AddedBy), n.OCRMillis, n.LibraryID)
 	if err != nil {
 		return 0, err
 	}
 	id, _ := res.LastInsertId()
-	if err := setTags(tx, id, n.Tags); err != nil {
+	if err := setTags(tx, n.LibraryID, id, n.Tags); err != nil {
 		return 0, err
 	}
 	if err := reindex(tx, id, &n.Text); err != nil {
@@ -369,11 +436,15 @@ func (a *App) patchDoc(id int64, p DocPatch) error {
 		return err
 	}
 	defer tx.Rollback()
+	var lib int64
+	if err := tx.QueryRow(`SELECT library_id FROM docs WHERE id = ?`, id).Scan(&lib); err != nil {
+		return err
+	}
 	if p.Title != nil {
 		tx.Exec(`UPDATE docs SET title = ? WHERE id = ?`, clean(*p.Title, 200), id)
 	}
 	if p.Sender != nil {
-		sid, err := senderID(tx, clean(*p.Sender, 120))
+		sid, err := senderID(tx, lib, clean(*p.Sender, 120))
 		if err != nil {
 			return err
 		}
@@ -395,7 +466,7 @@ func (a *App) patchDoc(id int64, p DocPatch) error {
 		tx.Exec(`UPDATE docs SET notes = ? WHERE id = ?`, clean(*p.Notes, 10000), id)
 	}
 	if p.Tags != nil {
-		if err := setTags(tx, id, *p.Tags); err != nil {
+		if err := setTags(tx, lib, id, *p.Tags); err != nil {
 			return err
 		}
 	}
@@ -458,13 +529,14 @@ func ftsQuery(q string) string {
 }
 
 type DocQuery struct {
+	Library                                   int64 // required: one library at a time
 	Q, Status, Year, Month, Tag, Sender, Sort string
 	Limit, Offset                             int
 }
 
 func (a *App) listDocs(f DocQuery) ([]*Doc, int, error) {
-	var where []string
-	var args []any
+	where := []string{`d.library_id = ?`}
+	args := []any{f.Library}
 	from := `docs d LEFT JOIN senders s ON s.id = d.sender_id`
 	cols := docCols + `, ''`
 	if fq := ftsQuery(f.Q); fq != "" {
