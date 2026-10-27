@@ -240,12 +240,17 @@ try {
   if (!w1.some((w) => w.t === 'EINGANG')) problems.push('stamp: its words are not among the page words');
   // and "Paid", in English this time
   await d.getByRole('button', { name: 'Bezahlt', exact: true }).click();
+  await d.locator('.dlg .stamp').waitFor();
+  await d.waitForTimeout(300);
+  const placed = await d.locator('.dlg .stamp').getAttribute('style');
+  const sz = await api(d, `/api/docs/${billDoc.id}/pagesize/1`);
+  log('second stamp placed at', placed, 'page', JSON.stringify(sz), 'words', w1.length, JSON.stringify(w1.filter((w) => w.x > 0.6 && w.y < 0.35)));
   await d.getByRole('radio', { name: /English/ }).click();
   await d.getByRole('button', { name: 'Stamp it' }).click();
   await d.getByText('Stamped “Paid”').waitFor();
   const paid = await api(d, `/api/docs/${billDoc.id}`);
   if (paid.stamps?.length !== 2 || !/PAID/.test(paid.text)) problems.push(`english stamp: ${JSON.stringify(paid.stamps)}`);
-  else if (Math.abs(paid.stamps[0].y - paid.stamps[1].y) < 0.05 && Math.abs(paid.stamps[0].x - paid.stamps[1].x) < 0.2) problems.push(`the second stamp sits on the first: ${JSON.stringify(paid.stamps.map((s) => [s.x, s.y]))}`);
+  else if (Math.abs(paid.stamps[0].y - paid.stamps[1].y) < 0.05 && Math.abs(paid.stamps[0].x - paid.stamps[1].x) < 0.2) problems.push(`the second stamp sits on the first: ${JSON.stringify(paid.stamps.map((s) => [s.x, s.y]))} placed ${placed} size ${JSON.stringify(sz)} words ${JSON.stringify(w1.filter((w) => w.x > 0.55 && w.y < 0.4))}`);
   await d.waitForTimeout(1500);
   await shot(d, '38-stamped');
   log('stamp ok');
