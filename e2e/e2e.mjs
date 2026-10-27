@@ -213,6 +213,7 @@ try {
     const v = await d.getByLabel('Document date', { exact: true }).inputValue();
     if (v !== '2026-10-24') problems.push(`marker: date field is "${v}"`);
   }
+  await d.getByRole('dialog', { name: /Mark the date/ }).waitFor({ state: 'detached' });
   await d.getByRole('button', { name: 'Cancel' }).click();
   log('marker ok');
 
