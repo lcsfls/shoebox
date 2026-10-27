@@ -418,8 +418,10 @@ func TestRolesAndTokens(t *testing.T) {
 		t.Fatalf("revoked token: %d", res.StatusCode)
 	}
 	// passkey sign-in starts (the browser part is tested end to end)
+	// (passkeys need a host name, not an IP address)
 	req, _ := http.NewRequest("POST", srv.URL+"/api/login/passkey/begin", nil)
-	req.Header.Set("Origin", srv.URL)
+	req.Host = "localhost"
+	req.Header.Set("Origin", "http://localhost")
 	if res, err := c.Do(req); err != nil || res.StatusCode != 200 {
 		t.Fatalf("passkey begin: %v %v", err, res.StatusCode)
 	}

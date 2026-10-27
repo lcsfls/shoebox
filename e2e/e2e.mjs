@@ -77,14 +77,14 @@ try {
   const bill = inbox.docs.find((x) => x.date === '2026-10-24');
   if (!bill) problems.push('review: no document with the date 24.10.2026 ' + JSON.stringify(inbox.docs.map((x) => [x.title, x.date])));
   await d.goto(B + '/review/' + (bill ? bill.id : inbox.docs[0].id));
-  await d.getByLabel('Sender').waitFor();
+  await d.getByLabel('Sender', { exact: true }).waitFor();
   await d.waitForTimeout(800);
   await shot(d, '05-review-item');
-  const title = await d.getByLabel('Title').inputValue();
-  const date = await d.getByLabel('Document date').inputValue();
+  const title = await d.getByLabel('Title', { exact: true }).inputValue();
+  const date = await d.getByLabel('Document date', { exact: true }).inputValue();
   if (date !== '2026-10-24') problems.push(`review: date recognized as "${date}"`);
-  await d.getByLabel('Title').fill('Stromrechnung Oktober');
-  await d.getByLabel('Sender').fill('Stadtwerke Musterstadt');
+  await d.getByLabel('Title', { exact: true }).fill('Stromrechnung Oktober');
+  await d.getByLabel('Sender', { exact: true }).fill('Stadtwerke Musterstadt');
   await d.locator('#rv-tags').fill('Strom');
   await d.locator('#rv-tags').press('Enter');
   await d.getByRole('button', { name: 'File it' }).click();
@@ -95,7 +95,7 @@ try {
   await d.waitForURL((u) => u.pathname !== '/review/' + billId);
   await d.waitForTimeout(800);
   if (await d.getByRole('button', { name: 'File it' }).count()) {
-    await d.getByLabel('Sender').fill('Hausverwaltung Beispiel');
+    await d.getByLabel('Sender', { exact: true }).fill('Hausverwaltung Beispiel');
     await d.getByRole('button', { name: 'File it' }).click();
     await d.getByText(/Filed:/).waitFor();
   }
@@ -192,7 +192,7 @@ try {
   const billDoc = (await api(d, '/api/docs?q=' + encodeURIComponent('Stromrechnung Oktober'))).docs?.[0];
   await d.goto(B + '/doc/' + billDoc.id);
   await d.getByRole('button', { name: 'Edit' }).click();
-  await d.getByLabel('Document date').fill('');
+  await d.getByLabel('Document date', { exact: true }).fill('');
   await d.getByRole('button', { name: 'Mark the date on the page' }).click();
   await d.getByRole('dialog', { name: /Mark the date/ }).waitFor();
   const words = await api(d, `/api/docs/${billDoc.id}/words/1`);
@@ -210,7 +210,7 @@ try {
     await until(d, async () => await d.getByRole('button', { name: 'Use it' }).isEnabled(), 'the marked date', 10000);
     await shot(d, '16-marker');
     await d.getByRole('button', { name: 'Use it' }).click();
-    const v = await d.getByLabel('Document date').inputValue();
+    const v = await d.getByLabel('Document date', { exact: true }).inputValue();
     if (v !== '2026-10-24') problems.push(`marker: date field is "${v}"`);
   }
   await d.getByRole('button', { name: 'Cancel' }).click();
@@ -310,7 +310,7 @@ try {
   const scanned = await api(p, `/api/docs/${scanJob.doc_id}`);
   if (scanned.doc?.pages !== 2) problems.push(`scan: expected 2 pages, got ${scanned.doc?.pages}`);
   await p.goto(B + `/review/${scanJob.doc_id}`);
-  await p.getByLabel('Sender').waitFor();
+  await p.getByLabel('Sender', { exact: true }).waitFor();
   await p.waitForTimeout(1200);
   await shot(p, '28-phone-review');
   log('scan ok');

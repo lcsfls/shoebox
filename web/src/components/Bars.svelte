@@ -11,6 +11,7 @@
   <div class="plot" style="height:{height}px" role="list" onmouseleave={() => (active = -1)}>
     <span class="top muted small" aria-hidden="true">{fmt(max)}</span>
     {#each items as it, i (it.label + i)}
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div class="col" role="listitem" tabindex="0" aria-label="{it.title || it.label}: {fmt(it.value)} {unit}"
         onmouseenter={() => (active = i)} onfocus={() => (active = i)} onblur={() => (active = -1)}>
         <span class="bar" class:on={active === i} style="height:{(it.value / max) * 100}%"></span>

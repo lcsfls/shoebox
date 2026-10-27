@@ -1,5 +1,6 @@
 <script>
   // Change the pages of a document afterwards: order, turn, remove, crop.
+  import { untrack } from 'svelte';
   import { flip } from 'svelte/animate';
   import { fade, scale } from 'svelte/transition';
   import { upload } from '../lib/api.js';
@@ -11,7 +12,8 @@
   let { doc, onsaved, onclose } = $props();
   // one entry per page as it will be: where it comes from, how it's turned,
   // and a new picture when it was cropped
-  let items = $state(Array.from({ length: Math.max(doc.pages, 1) }, (_, i) => ({ key: `p${i + 1}`, src: i + 1, rotate: 0, blob: null, url: '' })));
+  const pageCount = untrack(() => doc.pages); // the editor starts from the pages as they are now
+  let items = $state(Array.from({ length: Math.max(pageCount, 1) }, (_, i) => ({ key: `p${i + 1}`, src: i + 1, rotate: 0, blob: null, url: '' })));
   let saving = $state(false);
   let cropping = $state(null); // { index, canvas, quad, url, w, h }
   let cropBox = $state();
