@@ -10,16 +10,21 @@
   let { doc, stamps = [], config = stampConfig(null), editable = true, onchange } = $props();
   let labels = $derived(config[config.lang]);
   let open = $state(''); // kind of the stamp being placed
+  // the newest list right away, before the page around reloads
+  let fresh = $state(null);
+  let list = $derived(fresh ?? stamps);
+  $effect(() => { stamps; fresh = null; });
 
   async function removeAll() {
     if (!confirm('Take the stamps off? The document goes back to how it was before the first stamp (page changes made since then are undone too).')) return;
     try {
       const r = await api.del(`/api/docs/${doc.id}/stamps`);
       toast('Stamps removed');
+      fresh = r.stamps;
       onchange?.(r);
     } catch (e) { toast(e.message, 'error'); }
   }
-  const has = (kind) => stamps.some((s) => s.kind === kind);
+  const has = (kind) => list.some((s) => s.kind === kind);
 </script>
 
 <div class="stamps">
@@ -30,9 +35,9 @@
       <button type="button" class="btn small st paid" onclick={() => (open = 'paid')}><Icon name="check" size={16} />{labels.paid}{has('paid') ? ' again' : ''}</button>
     </div>
   {/if}
-  {#if stamps.length}
+  {#if list.length}
     <ul>
-      {#each stamps as s (s.id)}
+      {#each list as s (s.id)}
         <li class:paid={s.kind === 'paid'}>
           <strong>{s.label}</strong> {formatDate(s.date)}{s.note ? ` · ${s.note}` : ''}{s.by ? ` · ${s.by}` : ''}
           <span class="mono muted hash" title="SHA-256 of the document before this stamp: {s.hash}">{s.hash.slice(0, 16)}…</span>
@@ -44,7 +49,7 @@
 </div>
 
 {#if open}
-  <StampDialog {doc} kind={open} {config} {stamps} onclose={() => (open = '')} onstamped={(r) => { open = ''; onchange?.(r); }} />
+  <StampDialog {doc} kind={open} {config} stamps={list} onclose={() => (open = '')} onstamped={(r) => { open = ''; fresh = r.stamps; onchange?.(r); }} />
 {/if}
 
 <style>

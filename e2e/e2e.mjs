@@ -236,6 +236,8 @@ try {
   if (stamped.stamps?.length !== 1 || !/EINGANG/.test(stamped.text) || stamped.doc.fields?.Eingang === undefined) {
     problems.push(`stamp: ${JSON.stringify({ stamps: stamped.stamps, fields: stamped.doc?.fields, hasText: /EINGANG/.test(stamped.text || '') })}`);
   }
+  const w1 = await api(d, `/api/docs/${billDoc.id}/words/1`);
+  if (!w1.some((w) => w.t === 'EINGANG')) problems.push('stamp: its words are not among the page words');
   // and "Paid", in English this time
   await d.getByRole('button', { name: 'Bezahlt', exact: true }).click();
   await d.getByRole('radio', { name: /English/ }).click();
