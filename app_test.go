@@ -146,18 +146,18 @@ func TestScanReviewFileSearch(t *testing.T) {
 
 	// search: words in the text, prefixes, the sender, the tags
 	for _, q := range []string{"gesamtbetrag", "strom", "musterst", "Stromrechnung oktober"} {
-		docs, total, err := a.listDocs(DocQuery{Q: q})
+		docs, total, err := a.listDocs(DocQuery{Library: 1, Q: q})
 		if err != nil || total != 1 || docs[0].ID != d.ID {
 			t.Errorf("search %q: %d results, %v", q, total, err)
 		}
 	}
-	if _, total, _ := a.listDocs(DocQuery{Q: "wasserrechnung"}); total != 0 {
+	if _, total, _ := a.listDocs(DocQuery{Library: 1, Q: "wasserrechnung"}); total != 0 {
 		t.Error("search found something that isn't there")
 	}
-	if _, total, _ := a.listDocs(DocQuery{Year: "2026", Month: "10"}); total != 1 {
+	if _, total, _ := a.listDocs(DocQuery{Library: 1, Year: "2026", Month: "10"}); total != 1 {
 		t.Error("month filter")
 	}
-	if _, total, _ := a.listDocs(DocQuery{Tag: "Strom"}); total != 1 {
+	if _, total, _ := a.listDocs(DocQuery{Library: 1, Tag: "Strom"}); total != 1 {
 		t.Error("tag filter")
 	}
 
@@ -224,7 +224,7 @@ func TestFolderWatcher(t *testing.T) {
 	default:
 		t.Fatal("watcher queued nothing")
 	}
-	docs, total, _ := a.listDocs(DocQuery{Q: "stadtwerke"})
+	docs, total, _ := a.listDocs(DocQuery{Library: 1, Q: "stadtwerke"})
 	if total != 1 {
 		t.Fatalf("folder file not in the library (%d)", total)
 	}
@@ -245,7 +245,7 @@ func TestFolderWatcher(t *testing.T) {
 	for len(a.jobs.queue) > 0 {
 		a.jobs.run(ctx, <-a.jobs.queue)
 	}
-	if _, total, _ := a.listDocs(DocQuery{Q: "stadtwerke"}); total != 1 {
+	if _, total, _ := a.listDocs(DocQuery{Library: 1, Q: "stadtwerke"}); total != 1 {
 		t.Errorf("after move: %d documents", total)
 	}
 	d, _ = a.getDoc(d.ID)
@@ -256,7 +256,7 @@ func TestFolderWatcher(t *testing.T) {
 	// deleted by hand: gone from the list
 	os.Remove(moved)
 	a.watcher.scan()
-	if _, total, _ := a.listDocs(DocQuery{}); total != 0 {
+	if _, total, _ := a.listDocs(DocQuery{Library: 1}); total != 0 {
 		t.Error("deleted file still listed")
 	}
 }
