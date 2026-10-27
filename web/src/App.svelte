@@ -1,7 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from './lib/api.js';
-  import { user, counts, toasts, can } from './lib/stores.js';
+  import { user, counts, toasts, can, setLibraries, library, canEdit } from './lib/stores.js';
+  import LibrarySwitch from './components/LibrarySwitch.svelte';
   import { route } from './lib/router.js';
   import { loadTags } from './lib/tags.js';
   import Icon from './components/Icon.svelte';
@@ -36,8 +37,9 @@
       const me = await api.get('/api/me');
       needsSetup = me.needs_setup;
       version = me.version;
+      setLibraries(me.libraries);
       user.set(me.user);
-      if (me.user) loadTags();
+      if (me.user) loadTags(true);
       if (can(me.user, 'admin')) api.get('/api/update').then((u) => (updateTo = u.newer ? u.latest.tag : '')).catch(() => {});
     } catch {
       user.set(null);
@@ -57,6 +59,17 @@
     timer = setTimeout(poll, $counts.busy ? 2500 : 15000);
   }
 
+  // another library: fresh counts and tag colors (the pages reload below)
+  let lastLib = $library;
+  $effect(() => {
+    const id = $library;
+    if (id !== lastLib && $user) {
+      lastLib = id;
+      loadTags(true);
+      poll();
+    }
+  });
+
   onMount(() => {
     loadMe().then(poll);
     const onVis = () => document.visibilityState === 'visible' && poll();
@@ -74,7 +87,7 @@
     { href: '/stats', label: 'Statistics', icon: 'chart', key: 'stats', role: 'viewer', wide: true },
     { href: '/settings', label: 'Settings', icon: 'settings', key: 'settings', role: 'viewer' },
   ];
-  let nav = $derived(allNav.filter((n) => can($user, n.role)));
+  let nav = $derived(allNav.filter((n) => (n.key === 'review' ? $canEdit : can($user, n.role))));
   // the phone's tab bar keeps four tabs; statistics is reached from Settings there
   let tabNav = $derived(nav.filter((n) => !n.wide));
   let fullscreen = $derived(section === 'scan');
@@ -91,7 +104,8 @@
         <a class="brand" href="/" aria-label="Shoebox home">
           <Icon name="box" size={26} /><span>shoebox</span>
         </a>
-        {#if can($user, 'member')}
+        <LibrarySwitch />
+        {#if $canEdit}
           <div class="side-actions">
             <a class="btn primary" href="/scan"><Icon name="scan" />Scan</a>
           </div>
@@ -116,6 +130,7 @@
     {/if}
 
     <main class="main">
+      {#key $library}
       {#if section === ''}
         <Home />
       {:else if section === 'scan'}
@@ -133,6 +148,7 @@
       {:else}
         <div class="page"><h1>Not found</h1><p><a href="/">Back to the start</a></p></div>
       {/if}
+      {/key}
     </main>
 
     {#if !fullscreen}

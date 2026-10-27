@@ -9,10 +9,10 @@
   let resetFor = $state(null);
   let resetPw = $state('');
   const roles = [
-    ['admin', 'Admin', 'everything, including settings and accounts'],
-    ['member', 'Member', 'scan, upload, review and edit documents'],
-    ['viewer', 'Viewer', 'search, read and download'],
+    ['admin', 'Admin', 'also settings, libraries and accounts'],
+    ['member', 'User', 'works in the libraries shared with them'],
   ];
+  let shared = $state('editor'); // access to the first library for a new account
 
   async function load() { users = await api.get('/api/users'); }
   onMount(load);
@@ -20,7 +20,7 @@
   async function add(e) {
     e.preventDefault();
     try {
-      await api.post('/api/users', nu);
+      await api.post('/api/users', { ...nu, libraries: shared ? [{ id: 1, role: shared }] : [] });
       nu = { username: '', name: '', password: '', role: 'member' };
       toast('Account created');
       load();
@@ -47,13 +47,13 @@
 
 <div class="card sec">
   <h2>Accounts</h2>
-  <p class="muted">Everyone shares one archive. The role decides what an account may do.</p>
+  <p class="muted">Who sees which documents is set per library under <a href="/settings/libraries">Libraries</a>.</p>
   <ul class="rows">
     {#each users as u (u.id)}
       <li>
         <Icon name="user" />
         <span class="grow">{u.name || u.username} <span class="muted small">{u.username} · {u.docs} document{u.docs === 1 ? '' : 's'} added{u.passkeys ? ` · ${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}` : ''}</span></span>
-        <select aria-label="Role of {u.username}" value={u.role} onchange={(e) => setRole(u, e.target.value)} disabled={u.id === $user.id}>
+        <select aria-label="Role of {u.username}" value={u.role === 'viewer' ? 'member' : u.role} onchange={(e) => setRole(u, e.target.value)} disabled={u.id === $user.id}>
           {#each roles as [k, label] (k)}<option value={k}>{label}</option>{/each}
         </select>
         {#if u.id !== $user.id}
@@ -85,8 +85,14 @@
   </div>
   <div class="two">
     <label class="field">Password <span class="hint">at least 10 characters; they can add a passkey later</span><input type="password" bind:value={nu.password} autocomplete="new-password" minlength="10" required /></label>
-    <label class="field">Role
+    <label class="field">Account
       <select bind:value={nu.role}>{#each roles as [k, label] (k)}<option value={k}>{label}</option>{/each}</select>
+    </label>
+  </div>
+  <div class="two">
+    <label class="field">In the first library
+      <select bind:value={shared}><option value="editor">Can edit</option><option value="reader">Can read</option><option value="">No access</option></select>
+      <span class="hint">More libraries under Settings → Libraries.</span>
     </label>
   </div>
   <div class="actions"><button class="btn primary">Create account</button></div>

@@ -1,6 +1,7 @@
 // Talks to the Shoebox server. Every change carries the X-Shoebox header
 // (the server's check against cross-site requests).
-import { user } from './stores.js';
+import { get } from 'svelte/store';
+import { user, library } from './stores.js';
 
 export class ApiError extends Error {
   constructor(message, status) { super(message); this.status = status; }
@@ -8,6 +9,8 @@ export class ApiError extends Error {
 
 async function request(method, path, body, isForm) {
   const opts = { method, headers: { 'X-Shoebox': '1' }, credentials: 'same-origin' };
+  const lib = get(library);
+  if (lib) opts.headers['X-Library'] = String(lib);
   if (body !== undefined) {
     if (isForm) opts.body = body;
     else { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
@@ -39,6 +42,8 @@ export function upload(path, formData, onProgress) {
     const x = new XMLHttpRequest();
     x.open('POST', path);
     x.setRequestHeader('X-Shoebox', '1');
+    const lib = get(library);
+    if (lib) x.setRequestHeader('X-Library', String(lib));
     x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     x.onload = () => {
       let data = {};

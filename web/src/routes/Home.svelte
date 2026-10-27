@@ -1,7 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { api, upload } from '../lib/api.js';
-  import { toast, counts, user, can } from '../lib/stores.js';
+  import { toast, counts, canEdit } from '../lib/stores.js';
+  import LibrarySwitch from '../components/LibrarySwitch.svelte';
   import { fly } from 'svelte/transition';
   import { motion } from '../lib/motion.js';
   import { tagInfo, colorFor } from '../lib/tags.js';
@@ -57,7 +58,8 @@
     <input id="home-q" type="search" bind:value={q} placeholder="Search text, sender, tags …" enterkeyhint="search" />
   </form>
 
-  {#if can($user, 'member')}
+  <div class="mobile-only libtop"><LibrarySwitch compact /></div>
+  {#if $canEdit}
   <div class="actions">
     <a class="scan" href="/scan">
       <span class="scan-icon"><Icon name="scan" size={30} /></span>
@@ -123,6 +125,7 @@
 </div>
 
 <style>
+  .libtop { margin-bottom: 12px; }
   .home { display: flex; flex-direction: column; gap: 20px; max-width: 1100px; }
   .search { display: flex; align-items: center; gap: 10px; padding: 0 14px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; color: var(--muted); }
   .search input { border: 0; background: transparent; min-height: 52px; padding: 0; }

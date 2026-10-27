@@ -57,6 +57,18 @@
 {/if}
 
 {#if s}
+  {#each info.libraries || [] as l (l.id)}
+    <div class="card sec">
+      <h2>{l.name}</h2>
+      <p class="mono path">{l.path}</p>
+      <ul class="facts">
+        <li class:bad={!l.writable}><Icon name={l.writable ? 'check' : 'warn'} />{l.writable ? 'Shoebox can write here' : `Shoebox can't write here: ${l.write_error}`}</li>
+        <li><Icon name="folder" />{l.fs ? `File system: ${l.fs}` : 'File system unknown'} · {l.docs} document{l.docs === 1 ? '' : 's'}</li>
+        {#if l.total}<li><Icon name="pages" />{formatSize(l.free)} free of {formatSize(l.total)}</li>{/if}
+      </ul>
+    </div>
+  {/each}
+
   <form class="card sec" onsubmit={save}>
     <h2>Files you add yourself</h2>
     <p class="muted">Copy a PDF into the archive folder, for example onto the NAS into <span class="mono">2026/01</span>, and Shoebox adds it to the library: it reads the text, takes the month from the folder and keeps the file where you put it.</p>

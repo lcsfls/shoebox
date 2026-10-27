@@ -35,7 +35,10 @@ async function until(page, fn, what, ms = 90000) {
   throw new Error('timed out waiting for ' + what);
 }
 const api = (page, p, opts = {}) => page.evaluate(async ([p, o]) => {
-  const r = await fetch(p, { ...o, headers: { 'X-Shoebox': '1', 'Content-Type': 'application/json' } });
+  const h = { 'X-Shoebox': '1', 'Content-Type': 'application/json' };
+  const lib = localStorage.getItem('sb-library'); // the library picked in the app
+  if (lib) h['X-Library'] = lib;
+  const r = await fetch(p, { ...o, headers: h });
   return r.json();
 }, [p, opts]);
 
@@ -237,6 +240,28 @@ try {
   if (viaToken.status !== 200 || !(await viaToken.json()).total) problems.push(`api token: ${viaToken.status}`);
   await shot(d, '19-api', true);
   log('stats, backup, api ok');
+
+  // a second library in its own folder, then switch to it and back
+  const privDir = path.join(path.dirname(ARCHIVE), 'private');
+  await d.goto(B + '/settings/libraries');
+  await d.getByLabel('Name', { exact: true }).fill('Privat');
+  await d.getByLabel('Folder on the server').fill(privDir);
+  await d.getByRole('button', { name: 'Create library' }).click();
+  await d.getByText('Library “Privat” created').waitFor();
+  if (!fs.existsSync(privDir)) problems.push('library: folder not created');
+  await shot(d, '35-libraries', true);
+  await d.locator('aside select[aria-label="Library"]').selectOption({ label: 'Privat' });
+  await d.goto(B + '/archive');
+  await d.waitForTimeout(800);
+  const privDocs = await api(d, '/api/docs');
+  if (privDocs.total !== 0) problems.push(`library: the new library shows ${privDocs.total} documents`);
+  await d.goto(B + '/');
+  await d.getByText('Scan a document').waitFor();
+  await shot(d, '36-library-private');
+  await d.locator('aside select[aria-label="Library"]').selectOption({ label: 'Shared' });
+  await d.waitForTimeout(500);
+  if ((await api(d, '/api/docs')).total < 3) problems.push('library: back in Shared, the documents are missing');
+  log('libraries ok');
 
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {
     await d.goto(B + '/settings/' + tab);

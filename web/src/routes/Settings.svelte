@@ -10,16 +10,17 @@
   import Account from './settings/Account.svelte';
   import Api from './settings/Api.svelte';
   import Updates from './settings/Updates.svelte';
-  import { user, can } from '../lib/stores.js';
+  import { user, can, canEdit } from '../lib/stores.js';
+  import Libraries from './settings/Libraries.svelte';
 
   let { tab = 'general', version = '', cycleTheme, theme } = $props();
   // [key, label, who may open it]
   const all = [
     ['general', 'General', 'viewer'], ['account', 'Account & passkeys', 'viewer'], ['storage', 'Storage', 'admin'],
-    ['ocr', 'Text recognition & AI', 'admin'], ['rules', 'Sorting rules', 'admin'], ['import', 'Import from Paperless', 'admin'],
-    ['names', 'Tags & senders', 'member'], ['users', 'Users', 'admin'], ['api', 'API', 'viewer'], ['updates', 'Updates', 'admin'],
+    ['ocr', 'Text recognition & AI', 'admin'], ['rules', 'Sorting rules', 'editor'], ['import', 'Import from Paperless', 'admin'],
+    ['names', 'Tags & senders', 'editor'], ['libraries', 'Libraries', 'admin'], ['users', 'Users', 'admin'], ['api', 'API', 'viewer'], ['updates', 'Updates', 'admin'],
   ];
-  let tabs = $derived(all.filter(([, , role]) => can($user, role)));
+  let tabs = $derived(all.filter(([, , role]) => (role === 'editor' ? $canEdit : can($user, role))));
   let allowed = $derived(tabs.some(([k]) => k === tab));
 </script>
 
@@ -37,6 +38,7 @@
       {:else if tab === 'account'}<Account />
       {:else if tab === 'api'}<Api />
       {:else if tab === 'updates'}<Updates />
+      {:else if tab === 'libraries'}<Libraries />
       {:else if tab === 'storage'}<Storage />
       {:else if tab === 'ocr'}<OCR />
       {:else if tab === 'rules'}<Rules />

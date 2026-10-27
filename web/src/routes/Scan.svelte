@@ -1,7 +1,7 @@
 <script>
   import { onMount, tick } from 'svelte';
   import { upload } from '../lib/api.js';
-  import { toast, counts } from '../lib/stores.js';
+  import { toast, counts, libraries, currentLibrary } from '../lib/stores.js';
   import { navigate } from '../lib/router.js';
   import { detectQuad, fullQuad, warp, enhance, outputSize, sharpness } from '../lib/scan.js';
   import Icon from '../components/Icon.svelte';
@@ -306,7 +306,7 @@
 <div class="scan">
   <header class="bar">
     <button class="round" onclick={close} aria-label="Close the scanner"><Icon name="close" /></button>
-    <span class="title">{mode === 'crop' ? 'Adjust the corners' : `Page ${pages.length + 1}`}</span>
+    <span class="title">{mode === 'crop' ? 'Adjust the corners' : `Page ${pages.length + 1}`}{#if $libraries.length > 1}<span class="into">into {$currentLibrary?.name}</span>{/if}</span>
     {#if torchAvailable && mode === 'camera'}
       <button class="round" class:on={torch} onclick={toggleTorch} aria-pressed={torch} aria-label={torch ? 'Turn the light off' : 'Turn the light on'}><Icon name="flash" /></button>
     {:else}
@@ -392,7 +392,8 @@
 <style>
   .scan { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; background: #14110D; color: #fff; }
   .bar { display: flex; align-items: center; justify-content: space-between; padding: max(12px, env(safe-area-inset-top)) 14px 8px; }
-  .title { font-weight: 600; }
+  .title { font-weight: 600; display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
+  .into { font-weight: 400; font-size: 0.78rem; opacity: 0.75; }
   .round { width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgb(255 255 255 / 0.14); color: #fff; display: grid; place-items: center; cursor: pointer; }
   .placeholder { background: none; }
   .round.on { background: #F2B33D; color: #2B2620; }
