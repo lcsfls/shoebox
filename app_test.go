@@ -541,6 +541,9 @@ func TestLibraries(t *testing.T) {
 	if code, _, _ := do("POST", "/api/libraries", map[string]string{"name": "Bad", "path": a.cfg.DataDir}, anna, 0); code != 400 {
 		t.Errorf("library in the data folder accepted: %d", code)
 	}
+	if code, _, _ := do("POST", "/api/libraries", map[string]string{"name": "Taken", "path": filepath.Join(a.cfg.Archive, "2026")}, anna, 0); code != 200 {
+		t.Errorf("an empty folder inside the first library was refused: %d", code)
+	}
 	if code, _, _ := do("POST", "/api/libraries", map[string]string{"name": "Ben", "path": priv + "2"}, ben, 0); code != 403 {
 		t.Errorf("non-admin created a library: %d", code)
 	}

@@ -9,6 +9,15 @@
   let libs = $state([]);
   let users = $state([]);
   let nl = $state({ name: '', path: '' });
+  let pathEdited = $state(false);
+  // a new library's folder: by default a folder named after it next to the
+  // year folders of the first library (that one leaves it alone)
+  const slug = (n) => n.trim().toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  let base = $derived(libs.find((l) => l.id === 1)?.path || '');
+  $effect(() => {
+    if (!pathEdited && base) nl.path = nl.name.trim() ? `${base.replace(/\/+$/, '')}/${slug(nl.name) || 'library'}` : '';
+  });
   let adding = $state({}); // library id -> user id to add
   let renaming = $state(0);
   let newName = $state('');
@@ -30,6 +39,7 @@
       await api.post('/api/libraries', nl);
       toast(`Library “${nl.name}” created`);
       nl = { name: '', path: '' };
+      pathEdited = false;
       await load();
       refreshMine();
     } catch (err) { toast(err.message, 'error', 6000); }
@@ -113,10 +123,10 @@
   <div class="two">
     <label class="field">Name<input type="text" bind:value={nl.name} maxlength="60" placeholder="e.g. Private, Company, Mum's papers" required /></label>
     <label class="field">Folder on the server
-      <input type="text" bind:value={nl.path} class="mono" placeholder="/srv/shoebox/private" required />
+      <input type="text" bind:value={nl.path} oninput={() => (pathEdited = true)} class="mono" placeholder={base ? `${base}/private` : '/srv/shoebox/private'} required />
     </label>
   </div>
-  <p class="hint">The full path inside the server or container. It may be a folder inside another library's folder (that library leaves it alone) or a second NAS share. In a Proxmox container, add a share with <span class="mono">pct set &lt;ID&gt; -mp1 /mnt/pve/nas/other,mp=/srv/shoebox/other</span> first. Shoebox creates the folder if it doesn't exist.</p>
+  <p class="hint">Shoebox creates the folder and files the library's documents in it by year and month, like the first library. The suggestion puts it inside the first library's folder, so it lives on the same NAS share and nothing has to be set up on the server. To use another share instead, mount it into the container first (Proxmox: <span class="mono">pct set &lt;ID&gt; -mp1 /mnt/pve/nas/other,mp=/srv/shoebox/other</span>) and enter that path.</p>
   <div class="actions"><button class="btn primary" disabled={busy}><Icon name="plus" />Create library</button></div>
 </form>
 

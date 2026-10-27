@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -203,6 +204,17 @@ func (a *App) checkLibraryPath(p string, self int64) (string, error) {
 		}
 		if l.ID != self && strings.HasPrefix(filepath.Clean(l.Path), p+string(filepath.Separator)) {
 			return "", errors.New("The folder of “" + l.Name + "” is inside this one. Pick a folder next to it or inside it instead.")
+		}
+		// inside another library's folder: only where it has no documents yet,
+		// otherwise they would change library behind its back
+		if l.ID != self && strings.HasPrefix(p, filepath.Clean(l.Path)+string(filepath.Separator)) {
+			rel, _ := filepath.Rel(filepath.Clean(l.Path), p)
+			var n int
+			a.db.QueryRow(`SELECT count(*) FROM docs WHERE library_id = ? AND (path = ? OR path LIKE ? ESCAPE '\')`, l.ID, rel,
+				strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(filepath.ToSlash(rel))+"/%").Scan(&n)
+			if n > 0 {
+				return "", fmt.Errorf("“%s” already has %d documents in this folder. Pick a new folder.", l.Name, n)
+			}
 		}
 	}
 	if err := os.MkdirAll(p, 0o750); err != nil {
