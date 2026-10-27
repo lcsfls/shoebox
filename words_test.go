@@ -7,7 +7,7 @@ func TestParseBBox(t *testing.T) {
 <word xMin="59.5" yMin="84.2" xMax="119.0" yMax="94.2">Datum:</word>
 <word xMin="125.0" yMin="84.2" xMax="180.0" yMax="94.2">09.02.2026</word>
 <word xMin="10" yMin="10" xMax="20" yMax="20">B&amp;B</word></page></doc>`
-	w := parseBBox(in)
+	w := parseBBox(in, 0, 0)
 	if len(w) != 3 || w[1].T != "09.02.2026" || w[2].T != "B&B" {
 		t.Fatalf("words %+v", w)
 	}

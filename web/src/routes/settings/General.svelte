@@ -36,6 +36,10 @@
       <span>File automatically when Shoebox is sure<span class="hint">A sorting rule or a known sender matched, and a date and a title were found. Everything else waits in Review.</span></span></label>
     <label class="check"><input type="checkbox" bind:checked={s.learn} />
       <span>Suggest tags and senders from similar documents<span class="hint">A new letter gets the tags that most of the closest filed documents share. They show with a dashed outline in Review.</span></span></label>
+    <div class="two">
+      <label class="field">Received stamp<input type="text" bind:value={s.stamp_in} maxlength="24" placeholder="Eingang" /></label>
+      <label class="field">Paid stamp<input type="text" bind:value={s.stamp_paid} maxlength="24" placeholder="Bezahlt" /></label>
+    </div>
     <label class="field">Documents read at the same time
       <select bind:value={s.workers}><option value={1}>1 (small servers)</option><option value={2}>2</option><option value={3}>3</option><option value={4}>4</option></select>
       <span class="hint">Takes effect after a restart.</span>
@@ -65,6 +69,8 @@
 </div>
 
 <style>
+  .two { display: grid; gap: 12px; }
+  @media (min-width: 640px) { .two { grid-template-columns: 1fr 1fr; } }
   .statslink { flex-direction: row !important; align-items: center; text-decoration: none; color: var(--ink); }
   @media (min-width: 900px) { .statslink { display: none !important; } }
 </style>

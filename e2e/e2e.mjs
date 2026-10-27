@@ -222,6 +222,24 @@ try {
   await d.getByRole('button', { name: 'Cancel' }).click();
   log('marker ok');
 
+  // stamps: "Eingang" burnt into the PDF, with the hash
+  await d.goto(B + '/doc/' + billDoc.id);
+  await d.getByRole('button', { name: 'Eingang', exact: true }).click();
+  await d.getByRole('dialog', { name: /Stamp/ }).waitFor();
+  await d.locator('.dlg .stamp').waitFor();
+  await d.getByLabel('Note').fill('per Post');
+  await d.waitForTimeout(500);
+  await shot(d, '37-stamp');
+  await d.getByRole('button', { name: 'Stamp it' }).click();
+  await d.getByText('Stamped “Eingang”').waitFor();
+  const stamped = await api(d, `/api/docs/${billDoc.id}`);
+  if (stamped.stamps?.length !== 1 || !/EINGANG/.test(stamped.text) || stamped.doc.fields?.Eingang === undefined) {
+    problems.push(`stamp: ${JSON.stringify({ stamps: stamped.stamps, fields: stamped.doc?.fields, hasText: /EINGANG/.test(stamped.text || '') })}`);
+  }
+  await d.waitForTimeout(1500);
+  await shot(d, '38-stamped');
+  log('stamp ok');
+
   // statistics, a backup, rule suggestions, an API token
   await d.goto(B + '/stats');
   await d.getByRole('heading', { name: 'Statistics' }).waitFor();

@@ -28,13 +28,19 @@ var (
 	reWord     = regexp.MustCompile(`<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">([^<]*)</word>`)
 )
 
-func parseBBox(s string) []pageWord {
+// parseBBox reads pdftotext -bbox output. The words are placed on the page
+// as shown, but the page size it prints ignores the page's rotation: pass
+// the shown size (pageBox) when the page may be turned, or 0 to use it.
+func parseBBox(s string, shownW, shownH float64) []pageWord {
 	m := rePageSize.FindStringSubmatch(s)
 	if m == nil {
 		return nil
 	}
 	pw, _ := strconv.ParseFloat(m[1], 64)
 	ph, _ := strconv.ParseFloat(m[2], 64)
+	if shownW > 0 && shownH > 0 {
+		pw, ph = shownW, shownH
+	}
 	if pw <= 0 || ph <= 0 {
 		return nil
 	}
@@ -79,7 +85,8 @@ func (a *App) handleDocWords(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Couldn't read the words of this page.")
 		return
 	}
-	words := parseBBox(string(out))
+	sw, sh, _, _ := pageBox(r.Context(), src, n)
+	words := parseBBox(string(out), sw, sh)
 	if words == nil {
 		words = []pageWord{}
 	}

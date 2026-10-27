@@ -143,6 +143,20 @@ var migrations = []string{
 	DROP TABLE tags;
 	ALTER TABLE tags_new RENAME TO tags;
 	ALTER TABLE rules ADD COLUMN library_id INTEGER NOT NULL DEFAULT 1;`,
+
+	// 3: stamps burnt into documents
+	`CREATE TABLE stamps(
+		id INTEGER PRIMARY KEY,
+		doc_id INTEGER NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+		kind TEXT NOT NULL,
+		label TEXT NOT NULL,
+		date TEXT NOT NULL,
+		note TEXT NOT NULL DEFAULT '',
+		page INTEGER NOT NULL,
+		user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+		hash TEXT NOT NULL,
+		created_at TEXT NOT NULL);
+	CREATE INDEX stamps_doc ON stamps(doc_id);`,
 }
 
 func migrate(db *sql.DB) error {

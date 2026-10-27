@@ -61,7 +61,7 @@ func (a *App) handleDoc(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, 200, map[string]any{"doc": d, "text": a.docText(d.ID)})
+	writeJSON(w, 200, map[string]any{"doc": d, "text": a.docText(d.ID), "stamps": a.docStamps(d.ID)})
 }
 
 func (a *App) handleDocUpdate(w http.ResponseWriter, r *http.Request) {

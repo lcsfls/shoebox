@@ -8,6 +8,7 @@
   import DocForm from '../components/DocForm.svelte';
   import Pages from '../components/Pages.svelte';
   import PageEditor from '../components/PageEditor.svelte';
+  import Stamps from '../components/Stamps.svelte';
 
   let { id } = $props();
   let doc = $state(null);
@@ -22,12 +23,16 @@
   let showText = $state(false);
   let busy = $state(false);
   let error = $state('');
+  let stamps = $state([]);
+  let stampLabels = $state({ in: 'Eingang', paid: 'Bezahlt' });
 
   async function load() {
     try {
-      const [d, s, t] = await Promise.all([api.get(`/api/docs/${id}`), api.get('/api/senders'), api.get('/api/tags')]);
+      const [d, s, t, st] = await Promise.all([api.get(`/api/docs/${id}`), api.get('/api/senders'), api.get('/api/tags'), api.get('/api/settings').catch(() => null)]);
       doc = d.doc;
       text = d.text;
+      stamps = d.stamps || [];
+      if (st) stampLabels = { in: st.settings.stamp_in || 'Eingang', paid: st.settings.stamp_paid || 'Bezahlt' };
       senders = s.map((x) => x.name);
       tags = t.map((x) => x.name);
       resetForm();
@@ -125,6 +130,9 @@
               <button class="btn small ghost danger" onclick={remove}><Icon name="trash" />Delete</button>
             {/if}
           </div>
+          {#if mayEdit || stamps.length}
+            <Stamps {doc} {stamps} labels={stampLabels} editable={mayEdit} onchange={() => load()} />
+          {/if}
           {#if showText}<pre class="ocr">{text || 'No text recognized.'}</pre>{/if}
         </div>
       </div>
