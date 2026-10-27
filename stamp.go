@@ -304,19 +304,28 @@ func (a *App) handlePageSize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"w": pw, "h": ph, "stamp_w": stampWidth, "stamp_ratio": stampH / stampW}
-	// a free spot for the next stamp: away from the text and the stamps there
-	if b, err := run(r.Context(), time.Minute, "pdftotext", "-bbox", "-f", strconv.Itoa(n), "-l", strconv.Itoa(n), src, "-"); err == nil {
-		words := parseBBox(string(b), pw, ph)
-		sh := stampWidth * (stampH / stampW) * pw / ph
-		for _, s := range a.docStamps(d.ID) {
-			if s.Page == n && (s.X > 0 || s.Y > 0) {
-				words = append(words, pageWord{X: s.X, Y: s.Y, W: stampWidth, H: sh})
-			}
-		}
-		x, y := freeSpot(words, stampWidth, sh)
+	if x, y, ok := a.stampSpot(r.Context(), d, src, n, pw, ph); ok {
 		out["x"], out["y"] = x, y
 	}
 	writeJSON(w, 200, out)
+}
+
+// stampSpot: a free spot for the next stamp, away from the text and the
+// stamps already on the page.
+func (a *App) stampSpot(ctx context.Context, d *Doc, src string, page int, pw, ph float64) (float64, float64, bool) {
+	b, err := run(ctx, time.Minute, "pdftotext", "-bbox", "-f", strconv.Itoa(page), "-l", strconv.Itoa(page), src, "-")
+	if err != nil {
+		return 0, 0, false
+	}
+	words := parseBBox(string(b), pw, ph)
+	sh := stampWidth * (stampH / stampW) * pw / ph
+	for _, s := range a.docStamps(d.ID) {
+		if s.Page == page && (s.X > 0 || s.Y > 0) {
+			words = append(words, pageWord{X: s.X, Y: s.Y, W: stampWidth, H: sh})
+		}
+	}
+	x, y := freeSpot(words, stampWidth, sh)
+	return x, y, true
 }
 
 // freeSpot picks the first corner spot that no word (or stamp) overlaps.
@@ -381,6 +390,7 @@ func (a *App) handleDocStamp(w http.ResponseWriter, r *http.Request) {
 		Date string  `json:"date"` // YYYY-MM-DD, default today
 		Note string  `json:"note"`
 		Lang string  `json:"lang"` // de | en, default from the settings
+		Auto bool    `json:"auto"` // not moved by hand: find the free spot now
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -413,6 +423,13 @@ func (a *App) handleDocStamp(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, 404, "The file is not reachable.")
 		return
+	}
+	if in.Auto {
+		if pw, ph, _, err := pageBox(r.Context(), src, in.Page); err == nil {
+			if x, y, ok := a.stampSpot(r.Context(), d, src, in.Page, pw, ph); ok {
+				in.X, in.Y = x, y
+			}
+		}
 	}
 	hash := fileSum(src)
 	// keep the document as it was before its first stamp

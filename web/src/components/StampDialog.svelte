@@ -24,6 +24,7 @@
   let busy = $state(false);
   let img = $state();
   let drag = null;
+  let moved = $state(false); // by hand; otherwise the server places it
 
   // the stamp's size as shares of the page
   let sw = $derived(size ? size.stamp_w : 0.27);
@@ -48,6 +49,7 @@
     e.preventDefault();
     const r = img.getBoundingClientRect();
     drag = { sx: e.clientX, sy: e.clientY, x: pos.x, y: pos.y, w: r.width, h: r.height };
+    moved = true;
     e.currentTarget.setPointerCapture(e.pointerId);
   }
   function move(e) {
@@ -63,13 +65,14 @@
     const k = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }[e.key];
     if (!k) return;
     e.preventDefault();
+    moved = true;
     pos = { x: Math.min(1 - sw, Math.max(0, pos.x + k[0])), y: Math.min(1 - sh, Math.max(0, pos.y + k[1])) };
   }
 
   async function stamp() {
     busy = true;
     try {
-      const r = await api.post(`/api/docs/${doc.id}/stamp`, { kind, page, x: pos.x, y: pos.y, date, note, lang });
+      const r = await api.post(`/api/docs/${doc.id}/stamp`, { kind, page, x: pos.x, y: pos.y, date, note, lang, auto: !moved });
       toast(`Stamped “${label}”`);
       onstamped?.(r);
     } catch (e) { toast(e.message, 'error', 6000); }
@@ -79,7 +82,8 @@
   function enterStamps(e) {
     if (e.key === 'Enter') { e.preventDefault(); if (!busy && size && date) stamp(); }
   }
-  function go(d) { page = Math.min(doc.pages || 1, Math.max(1, page + d)); loadPage(); }
+  function go(d) {
+    moved = false; page = Math.min(doc.pages || 1, Math.max(1, page + d)); loadPage(); }
 </script>
 
 <div class="scrim" role="presentation" transition:fade={motion({ duration: 150 })} onclick={onclose}></div>
