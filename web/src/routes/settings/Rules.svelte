@@ -12,6 +12,7 @@
   let edit = $state(null);
   let sample = $state('');
   let result = $state(null);
+  let suggestions = $state([]);
 
   const kinds = [
     ['any', 'any of the words'], ['all', 'all of the words'], ['exact', 'exactly this text'],
@@ -23,7 +24,20 @@
       api.get('/api/rules'), api.get('/api/tags').then((t) => t.map((x) => x.name)), api.get('/api/senders').then((s) => s.map((x) => x.name)),
     ]);
   }
-  onMount(load);
+  async function loadSuggestions() { suggestions = await api.get('/api/rules/suggestions').catch(() => []); }
+  onMount(() => { load(); loadSuggestions(); });
+
+  async function accept(sg) {
+    try {
+      await api.post('/api/rules', { name: sg.sender, kind: 'exact', pattern: sg.pattern, nocase: true, sender: sg.sender, tags: sg.tags, title: '', position: 0, enabled: true });
+      toast(`Rule for ${sg.sender} added`);
+      load(); loadSuggestions();
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  async function dismiss(sg) {
+    await api.post('/api/rules/suggestions/dismiss', { key: sg.key });
+    suggestions = suggestions.filter((x) => x.key !== sg.key);
+  }
 
   function newRule() {
     edit = { id: 0, name: '', kind: 'any', pattern: '', nocase: true, sender: '', tags: [], title: '', position: 0, enabled: true };
@@ -48,6 +62,25 @@
     result = await api.post('/api/rules/test', { text: sample }).catch((e) => ({ error: e.message }));
   }
 </script>
+
+{#if suggestions.length}
+  <div class="card sec">
+    <h2><Icon name="sparkle" />Suggested rules</h2>
+    <p class="muted">Lines that appear in the letters of one sender and in no others. As a rule, they file the next letter of that sender without asking.</p>
+    <ul class="suggest">
+      {#each suggestions as sg (sg.key)}
+        <li>
+          <div class="grow">
+            <p><strong>{sg.sender}</strong> <span class="muted small">· in {sg.covered} of {sg.docs} letters</span></p>
+            <p class="small">When the text has <span class="mono quote">{sg.pattern}</span>{#if sg.tags.length}, tag it {sg.tags.join(', ')}{/if}</p>
+          </div>
+          <button class="btn small primary" onclick={() => accept(sg)}><Icon name="plus" size={16} />Add rule</button>
+          <button class="btn small ghost" onclick={() => dismiss(sg)}>Not now</button>
+        </li>
+      {/each}
+    </ul>
+  </div>
+{/if}
 
 <div class="card sec">
   <h2>Sorting rules</h2>
@@ -119,6 +152,11 @@
 </div>
 
 <style>
+  .suggest { list-style: none; margin: 0; padding: 0; }
+  .suggest li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 0; border-top: 1px solid var(--line); }
+  .suggest p { margin: 0; }
+  .quote { background: var(--field); padding: 1px 6px; border-radius: 6px; overflow-wrap: anywhere; }
+  h2 :global(svg) { vertical-align: -3px; margin-right: 6px; color: var(--accent); }
   .editor { padding: 14px; border: 1px dashed var(--line-strong); border-radius: 12px; }
   .two { display: grid; gap: 12px; }
   @media (min-width: 640px) { .two { grid-template-columns: 1fr 1fr; } }

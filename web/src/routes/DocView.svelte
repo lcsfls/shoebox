@@ -1,11 +1,13 @@
 <script>
   import { api } from '../lib/api.js';
   import { toast, user, can } from '../lib/stores.js';
+  import { tagInfo, colorFor } from '../lib/tags.js';
   import { navigate } from '../lib/router.js';
   import { amountInput, parseAmount, formatDate, formatSize, formatAmount } from '../lib/format.js';
   import Icon from '../components/Icon.svelte';
   import DocForm from '../components/DocForm.svelte';
   import Pages from '../components/Pages.svelte';
+  import PageEditor from '../components/PageEditor.svelte';
 
   let { id } = $props();
   let doc = $state(null);
@@ -14,6 +16,7 @@
   let senders = $state([]);
   let tags = $state([]);
   let editing = $state(false);
+  let editPages = $state(false);
   let showText = $state(false);
   let busy = $state(false);
   let error = $state('');
@@ -67,6 +70,10 @@
   const ocrNames = { pdf: 'text already in the PDF', tesseract: 'Tesseract', paperless: 'Paperless', 'tesseract+ai': 'Tesseract and the AI model', 'pdf+ai': 'AI model' };
 </script>
 
+{#if editPages && doc}
+  <PageEditor {doc} onclose={() => (editPages = false)} onsaved={(d) => { editPages = false; load(); }} />
+{/if}
+
 <div class="page">
   <div class="page-head">
     <button class="btn ghost iconbtn" onclick={() => (history.length > 1 ? history.back() : navigate('/archive'))} aria-label="Back"><Icon name="back" /></button>
@@ -82,7 +89,7 @@
       <div class="side">
         {#if editing}
           <form class="card box stack" onsubmit={save}>
-            <DocForm bind:form {senders} {tags} idPrefix="dv" />
+            <DocForm bind:form {senders} {tags} idPrefix="dv" docId={doc.id} pages={doc.pages} updated={doc.updated_at} />
             <p class="hint">Saving renames the file to match{doc.source === 'folder' ? ', except for files you put into the archive folder yourself: those keep their name' : ''}.</p>
             <div class="row">
               <button type="button" class="btn" onclick={() => { resetForm(); editing = false; }}>Cancel</button>
@@ -95,7 +102,7 @@
               <dt>Sender</dt><dd>{doc.sender || '—'}</dd>
               <dt>Date</dt><dd>{doc.date ? formatDate(doc.date) : '—'}</dd>
               {#if doc.amount_cents != null}<dt>Amount</dt><dd>{formatAmount(doc.amount_cents)}</dd>{/if}
-              <dt>Tags</dt><dd>{#if doc.tags.length}<span class="chips">{#each doc.tags as t}<a class="chip" href="/archive?tag={encodeURIComponent(t)}">{t}</a>{/each}</span>{:else}—{/if}</dd>
+              <dt>Tags</dt><dd>{#if doc.tags.length}<span class="chips">{#each doc.tags as t}<a class="chip" data-c={colorFor(t, $tagInfo)} href="/archive?tag={encodeURIComponent(t)}">{t}</a>{/each}</span>{:else}—{/if}</dd>
               {#each Object.entries(doc.fields || {}) as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}
               {#if doc.notes}<dt>Notes</dt><dd class="pre">{doc.notes}</dd>{/if}
             </dl>
@@ -111,7 +118,10 @@
           <p class="muted">{sources[doc.source] || doc.source}{doc.added_by ? ` by ${doc.added_by}` : ''} · {doc.pages} page{doc.pages === 1 ? '' : 's'} · {formatSize(doc.size)} · text: {ocrNames[doc.ocr] || doc.ocr}{doc.rule ? ` · rule “${doc.rule}”` : ''}</p>
           <div class="row">
             <button class="btn small" onclick={() => (showText = !showText)}><Icon name="text" />{showText ? 'Hide the text' : 'Show the recognized text'}</button>
-            {#if can($user, 'member')}<button class="btn small ghost danger" onclick={remove}><Icon name="trash" />Delete</button>{/if}
+            {#if can($user, 'member')}
+              <button class="btn small" onclick={() => (editPages = true)}><Icon name="pages" />Edit pages</button>
+              <button class="btn small ghost danger" onclick={remove}><Icon name="trash" />Delete</button>
+            {/if}
           </div>
           {#if showText}<pre class="ocr">{text || 'No text recognized.'}</pre>{/if}
         </div>

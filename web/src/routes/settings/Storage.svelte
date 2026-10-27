@@ -9,9 +9,20 @@
   let info = $state(null);
   let s = $state(null);
   let busy = $state(false);
+  let backups = $state(null);
+  let backingUp = $state(false);
 
   async function load() {
-    [info, s] = await Promise.all([api.get('/api/storage'), loadSettings().then((r) => r.settings)]);
+    [info, s, backups] = await Promise.all([api.get('/api/storage'), loadSettings().then((r) => r.settings), api.get('/api/backups')]);
+  }
+  async function backupNow() {
+    backingUp = true;
+    try {
+      const b = await api.post('/api/backups');
+      toast(`Backup saved: ${b.name}`);
+      backups = await api.get('/api/backups');
+    } catch (err) { toast(err.message, 'error', 6000); }
+    backingUp = false;
   }
   onMount(load);
 
@@ -59,6 +70,38 @@
       <span>Add a text layer to scanned PDFs without one<span class="hint">The file is replaced by a searchable version; the untouched original is kept on the server under <span class="mono">originals/</span>.</span></span></label>
     <div class="actions"><button class="btn primary" disabled={busy}>Save</button></div>
   </form>
+
+  <form class="card sec" onsubmit={save}>
+    <h2>Database backup</h2>
+    <p class="muted">The PDFs are already in the archive folder. The database adds what isn't in them: notes, sorting rules, accounts, passkeys and the documents still waiting in Review. A backup puts a copy of it into the archive folder, so the NAS keeps it too.</p>
+    <p class="mono path">{backups?.folder}</p>
+    <div class="actions">
+      <button type="button" class="btn primary" onclick={backupNow} disabled={backingUp}><Icon name="download" />{backingUp ? 'Backing up …' : 'Back up now'}</button>
+      <span class="muted small">{backups?.last ? `Last backup ${ago(backups.last)}` : 'No backup yet'}</span>
+    </div>
+    <label class="check"><input type="checkbox" bind:checked={s.backup_daily} />
+      <span>Back up every day<span class="hint">Once a day, while Shoebox runs.</span></span></label>
+    <label class="field">Keep the newest
+      <select bind:value={s.backup_keep}>
+        {#each [3, 7, 14, 30, 90] as n (n)}<option value={n}>{n} backups</option>{/each}
+      </select>
+    </label>
+    {#if backups?.files?.length}
+      <ul class="files">
+        {#each backups.files.slice(0, 5) as b (b.name)}<li><span class="mono">{b.name}</span><span class="muted small">{formatSize(b.size)}</span></li>{/each}
+      </ul>
+    {/if}
+    <details>
+      <summary>Restoring a backup</summary>
+      <p class="small">Stop Shoebox, copy the backup over the database and start it again (paths of the standard install):</p>
+      <pre class="code">systemctl stop shoebox
+cp {backups?.folder}/shoebox-….db /var/lib/shoebox/shoebox.db
+rm -f /var/lib/shoebox/shoebox.db-wal /var/lib/shoebox/shoebox.db-shm
+cp {backups?.folder}/inbox/* /var/lib/shoebox/inbox/
+systemctl start shoebox</pre>
+    </details>
+    <div class="actions"><button class="btn" disabled={busy}>Save</button></div>
+  </form>
 {/if}
 
 <div class="card sec">
@@ -79,6 +122,9 @@
 </div>
 
 <style>
+  .files { list-style: none; margin: 0; padding: 0; }
+  .files li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+  details summary { cursor: pointer; font-weight: 600; }
   .path { word-break: break-all; font-size: 0.9rem; }
   .facts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
   .facts li { display: flex; gap: 10px; align-items: center; }

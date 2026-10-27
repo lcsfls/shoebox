@@ -34,6 +34,8 @@
     <p class="small">Example: <span class="mono">{previewPath(s.pattern, sample)}</span></p>
     <label class="check"><input type="checkbox" bind:checked={s.auto_file} />
       <span>File automatically when Shoebox is sure<span class="hint">A sorting rule or a known sender matched and a date was found. Everything else waits in Review.</span></span></label>
+    <label class="check"><input type="checkbox" bind:checked={s.learn} />
+      <span>Suggest tags and senders from similar documents<span class="hint">A new letter gets the tags that most of the closest filed documents share. They show with a dashed outline in Review.</span></span></label>
     <label class="field">Documents read at the same time
       <select bind:value={s.workers}><option value={1}>1 (small servers)</option><option value={2}>2</option><option value={3}>3</option><option value={4}>4</option></select>
       <span class="hint">Takes effect after a restart.</span>
@@ -41,6 +43,8 @@
     <div class="actions"><button class="btn primary" disabled={busy}>Save</button></div>
   </form>
 {/if}
+
+<a class="card sec statslink" href="/stats"><Icon name="chart" /><span class="grow"><strong>Statistics</strong><span class="muted small"> · pages scanned, documents, senders and more</span></span></a>
 
 <div class="card sec">
   <h2>Appearance</h2>
@@ -59,3 +63,8 @@
     <button class="btn" onclick={logout}><Icon name="logout" />Sign out</button>
   </div>
 </div>
+
+<style>
+  .statslink { flex-direction: row !important; align-items: center; text-decoration: none; color: var(--ink); }
+  @media (min-width: 900px) { .statslink { display: none !important; } }
+</style>

@@ -130,6 +130,21 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+	// tags imported before the palette existed carry Paperless' hex colors
+	rows, err := db.Query(`SELECT id, color FROM tags WHERE color LIKE '#%'`)
+	if err == nil {
+		fix := map[int64]string{}
+		for rows.Next() {
+			var id int64
+			var c string
+			rows.Scan(&id, &c)
+			fix[id] = nearestTagColor(c)
+		}
+		rows.Close()
+		for id, c := range fix {
+			db.Exec(`UPDATE tags SET color = ? WHERE id = ?`, c, id)
+		}
+	}
 	return nil
 }
 

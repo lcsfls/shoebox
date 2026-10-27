@@ -5,6 +5,10 @@
   import { monthName } from '../lib/format.js';
   import Icon from '../components/Icon.svelte';
   import DocCard from '../components/DocCard.svelte';
+  import { slide, fade } from 'svelte/transition';
+  import { flip } from 'svelte/animate';
+  import { tagInfo, colorFor } from '../lib/tags.js';
+  import { motion } from '../lib/motion.js';
 
   let tree = $state([]);
   let tags = $state([]);
@@ -15,6 +19,12 @@
   let error = $state('');
   let qInput = $state($route.query.get('q') || '');
   let showFilters = $state(false);
+  let collapsed = $state(''); // the selected year whose months are folded away
+
+  function clickYear(y) {
+    if (f.year === y && !f.month) collapsed = collapsed === y ? '' : y; // second click folds it
+    else { collapsed = ''; pick({ year: y, month: '' }); }
+  }
 
   let f = $derived({
     q: $route.query.get('q') || '',
@@ -88,11 +98,12 @@
         <li><button class:on={!f.year} onclick={() => pick({ year: '', month: '' })}>All documents</button></li>
         {#each tree as y (y.year)}
           <li>
-            <button class:on={f.year === y.year && !f.month} onclick={() => pick({ year: y.year, month: '' })}>
-              <span class="mono">{y.year === 'undated' ? 'No date' : y.year + '/'}</span><span class="n">{y.count}</span>
+            <button class:on={f.year === y.year && !f.month} onclick={() => clickYear(y.year)}
+              aria-expanded={y.months.length ? f.year === y.year && collapsed !== y.year : undefined}>
+              <span class="mono"><span class="caret" class:open={f.year === y.year && collapsed !== y.year} aria-hidden="true">{y.months.length ? '›' : ''}</span>{y.year === 'undated' ? 'No date' : y.year + '/'}</span><span class="n">{y.count}</span>
             </button>
-            {#if f.year === y.year && y.months.length}
-              <ul>
+            {#if f.year === y.year && collapsed !== y.year && y.months.length}
+              <ul transition:slide={motion({ duration: 220 })}>
                 {#each y.months as m (m.month)}
                   <li><button class:on={f.month === m.month} onclick={() => pick({ year: y.year, month: m.month })}>
                     <span><span class="mono">{m.month}/</span> <span class="muted">{monthName(y.year, m.month)}</span></span><span class="n">{m.count}</span>
@@ -109,7 +120,7 @@
         <h3>Tags</h3>
         <div class="chips">
           {#each tags.filter((t) => t.count) as t (t.id)}
-            <button class="chip" class:on={f.tag === t.name} onclick={() => pick({ tag: f.tag === t.name ? '' : t.name })}>{t.name}</button>
+            <button class="chip" data-c={colorFor(t.name, $tagInfo)} class:on={f.tag === t.name} onclick={() => pick({ tag: f.tag === t.name ? '' : t.name })}>{t.name}</button>
           {/each}
         </div>
       </section>
@@ -161,7 +172,7 @@
       </div>
     {/if}
     <div class="grid">
-      {#each docs as d (d.id)}<DocCard doc={d} href="/doc/{d.id}" />{/each}
+      {#each docs as d (d.id)}<div class="cell" animate:flip={motion({ duration: 240 })} in:fade={motion({ duration: 160 })}><DocCard doc={d} href="/doc/{d.id}" /></div>{/each}
     </div>
     {#if docs.length < total}
       <div class="more"><button class="btn" onclick={() => load(true)} disabled={loading}>Show more</button></div>
@@ -184,6 +195,11 @@
   .more { display: flex; justify-content: center; margin-top: 18px; }
   .empty { padding: 20px; display: flex; flex-direction: column; gap: 6px; }
   .chip { cursor: pointer; }
+  .cell { display: flex; min-width: 0; }
+  .cell > :global(*) { flex: 1; min-width: 0; }
+  .caret { display: inline-block; width: 1em; transition: transform 0.2s; color: var(--muted); }
+  .caret.open { transform: rotate(90deg); }
+  @media (prefers-reduced-motion: reduce) { .caret { transition: none; } }
   .chip.on { background: var(--accent); color: var(--on-accent); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 

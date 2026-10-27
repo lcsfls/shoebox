@@ -321,3 +321,159 @@ func TestHTTPAuth(t *testing.T) {
 		t.Fatalf("spa: %d", res.StatusCode)
 	}
 }
+
+func TestRolesAndTokens(t *testing.T) {
+	a := testApp(t)
+	srv := httptest.NewServer(a.routes())
+	defer srv.Close()
+	c := srv.Client()
+	do := func(method, path string, body any, cookie *http.Cookie, bearer string) (*http.Response, map[string]any) {
+		var rd *bytes.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			rd = bytes.NewReader(b)
+		} else {
+			rd = bytes.NewReader(nil)
+		}
+		req, _ := http.NewRequest(method, srv.URL+path, rd)
+		if cookie != nil {
+			req.Header.Set("Origin", srv.URL)
+			req.AddCookie(cookie)
+		}
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		res.Body.Close()
+		return res, out
+	}
+	session := func(res *http.Response) *http.Cookie {
+		for _, ck := range res.Cookies() {
+			if ck.Name == sessionCookie {
+				return ck
+			}
+		}
+		t.Fatal("no session cookie")
+		return nil
+	}
+	res, _ := do("POST", "/api/setup", map[string]string{"code": a.setupCode, "username": "anna", "password": "long-password-1"}, &http.Cookie{Name: "x", Value: "y"}, "")
+	admin := session(res)
+
+	// a viewer may read, not change
+	if res, out := do("POST", "/api/users", map[string]string{"username": "ben", "password": "long-password-2", "role": "viewer"}, admin, ""); res.StatusCode != 200 {
+		t.Fatalf("add viewer: %d %v", res.StatusCode, out)
+	}
+	res, _ = do("POST", "/api/login", map[string]string{"username": "ben", "password": "long-password-2"}, &http.Cookie{Name: "x", Value: "y"}, "")
+	viewer := session(res)
+	if res, _ := do("GET", "/api/docs", nil, viewer, ""); res.StatusCode != 200 {
+		t.Fatalf("viewer reads: %d", res.StatusCode)
+	}
+	if res, _ := do("PUT", "/api/settings", defaultSettings(), viewer, ""); res.StatusCode != 403 {
+		t.Fatalf("viewer changes settings: %d", res.StatusCode)
+	}
+	if res, _ := do("POST", "/api/scan", nil, viewer, ""); res.StatusCode != 403 {
+		t.Fatalf("viewer scans: %d", res.StatusCode)
+	}
+	// the last admin stays an admin
+	var annaID int64
+	a.db.QueryRow(`SELECT id FROM users WHERE username = 'anna'`).Scan(&annaID)
+	if res, _ := do("DELETE", fmt.Sprintf("/api/users/%d", annaID), nil, admin, ""); res.StatusCode != 400 {
+		t.Fatalf("deleting yourself: %d", res.StatusCode)
+	}
+
+	// API tokens: no cookie, no Origin needed; read-only means read-only
+	_, out := do("POST", "/api/tokens", map[string]any{"name": "script", "readonly": false}, admin, "")
+	tok, _ := out["token"].(string)
+	if !strings.HasPrefix(tok, "sb_") {
+		t.Fatalf("token: %v", out)
+	}
+	if res, _ := do("GET", "/api/docs", nil, nil, tok); res.StatusCode != 200 {
+		t.Fatalf("token reads: %d", res.StatusCode)
+	}
+	if res, _ := do("PUT", "/api/settings", defaultSettings(), nil, tok); res.StatusCode != 200 {
+		t.Fatalf("admin token writes: %d", res.StatusCode)
+	}
+	if res, _ := do("POST", "/api/tokens", map[string]any{"name": "x"}, nil, tok); res.StatusCode != 403 {
+		t.Fatalf("token creating tokens: %d", res.StatusCode)
+	}
+	_, out = do("POST", "/api/tokens", map[string]any{"name": "ro", "readonly": true}, admin, "")
+	ro, _ := out["token"].(string)
+	if res, _ := do("PUT", "/api/settings", defaultSettings(), nil, ro); res.StatusCode != 403 {
+		t.Fatalf("read-only token writes: %d", res.StatusCode)
+	}
+	if res, _ := do("GET", "/api/docs", nil, nil, "sb_wrong"); res.StatusCode != 401 {
+		t.Fatalf("wrong token: %d", res.StatusCode)
+	}
+	// revoked
+	var tid int64
+	a.db.QueryRow(`SELECT id FROM api_tokens WHERE name = 'script'`).Scan(&tid)
+	do("DELETE", fmt.Sprintf("/api/tokens/%d", tid), nil, admin, "")
+	if res, _ := do("GET", "/api/docs", nil, nil, tok); res.StatusCode != 401 {
+		t.Fatalf("revoked token: %d", res.StatusCode)
+	}
+	// passkey sign-in starts (the browser part is tested end to end)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/login/passkey/begin", nil)
+	req.Header.Set("Origin", srv.URL)
+	if res, err := c.Do(req); err != nil || res.StatusCode != 200 {
+		t.Fatalf("passkey begin: %v %v", err, res.StatusCode)
+	}
+}
+
+func TestLearningAndSuggestions(t *testing.T) {
+	a := testApp(t)
+	letter := func(sender, extra string) string {
+		return sender + " GmbH\nKundenservice Postfach 12 34\nIhre Abrechnung für Wasser und Abwasser\n" + extra + "\nZählerstand Trinkwasser Frischwasser Schmutzwasser Gebühren\n"
+	}
+	for i, extra := range []string{"Januar", "Februar", "März", "April"} {
+		if _, err := a.insertDoc(NewDoc{Status: "filed", Path: fmt.Sprintf("w%d.pdf", i), Title: "Wasser " + extra, Sender: "Wasserwerk Beispiel",
+			Tags: []string{"Wasser", "Nebenkosten"}, Text: letter("Wasserwerk Beispiel", extra)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, extra := range []string{"Kfz", "Hausrat"} {
+		a.insertDoc(NewDoc{Status: "filed", Path: fmt.Sprintf("v%d.pdf", i), Title: "Versicherung " + extra, Sender: "Beispiel Versicherung",
+			Tags: []string{"Versicherung"}, Text: "Beispiel Versicherung AG\nIhr Versicherungsschein " + extra + "\nBeitrag Police Laufzeit Selbstbeteiligung"})
+	}
+	l := a.learn(letter("Irgendwer", "Mai"), 0)
+	if !containsFold(l.Tags, "Wasser") || containsFold(l.Tags, "Versicherung") {
+		t.Errorf("learned tags %v", l.Tags)
+	}
+	if l.Sender != "Wasserwerk Beispiel" {
+		t.Errorf("learned sender %q", l.Sender)
+	}
+	sg := a.ruleSuggestions()
+	var found *RuleSuggestion
+	for i := range sg {
+		if sg[i].Sender == "Wasserwerk Beispiel" {
+			found = &sg[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("no suggestion for the water company: %+v", sg)
+	}
+	if found.Covered != 4 || !containsFold(found.Tags, "Wasser") {
+		t.Errorf("suggestion %+v", *found)
+	}
+	r := &Rule{Kind: "exact", Pattern: found.Pattern, NoCase: true}
+	if !r.matches(letter("Wasserwerk Beispiel", "Juni")) {
+		t.Errorf("suggested pattern %q doesn't match the next letter", found.Pattern)
+	}
+
+	// backups go into the archive folder
+	b, err := a.backup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(a.cfg.Archive, backupDir, b.Name)); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(a.listBackups()); n != 1 {
+		t.Errorf("%d backups listed", n)
+	}
+}

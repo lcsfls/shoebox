@@ -18,6 +18,7 @@
   let pattern = $state('{year}/{month}/{date}_{sender}_{title}');
   let busy = $state(false);
   let error = $state('');
+  let learned = $state([]);
 
   async function loadList() {
     const r = await api.get('/api/docs?status=inbox&sort=added&limit=200');
@@ -37,6 +38,8 @@
       tags = t.map((x) => x.name);
       pattern = st.settings.pattern;
       form = { title: doc.title, date: doc.date, sender: doc.sender, amount: amountInput(doc.amount_cents), tags: [...doc.tags], notes: doc.notes };
+      learned = [];
+      api.get(`/api/docs/${docId}/learned`).then((l) => (learned = l.tags.filter((t) => doc.tags.includes(t)))).catch(() => {});
     } catch (e) {
       error = e.message;
     }
@@ -121,7 +124,7 @@
         <div class="preview"><Pages {doc} /></div>
         <form class="side card" onsubmit={(e) => { e.preventDefault(); fileIt(); }}>
           {#if doc.rule}<p class="matched small"><Icon name="check" size={16} />Rule “{doc.rule}” matched</p>{/if}
-          <DocForm bind:form {senders} {tags} idPrefix="rv" />
+          <DocForm bind:form {senders} {tags} idPrefix="rv" docId={doc.id} pages={doc.pages} updated={doc.updated_at} {learned} />
           <div class="path">
             <span class="muted small">Will be saved as</span>
             <span class="mono">{path}</span>

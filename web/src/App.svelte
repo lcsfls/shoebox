@@ -3,6 +3,7 @@
   import { api } from './lib/api.js';
   import { user, counts, toasts, can } from './lib/stores.js';
   import { route } from './lib/router.js';
+  import { loadTags } from './lib/tags.js';
   import Icon from './components/Icon.svelte';
   import Login from './routes/Login.svelte';
   import Home from './routes/Home.svelte';
@@ -35,6 +36,7 @@
       needsSetup = me.needs_setup;
       version = me.version;
       user.set(me.user);
+      if (me.user) loadTags();
     } catch {
       user.set(null);
     }

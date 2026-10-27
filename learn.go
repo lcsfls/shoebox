@@ -88,7 +88,7 @@ func (a *App) keyTerms(text string, n int) []string {
 	for w, c := range tf {
 		var df int
 		a.db.QueryRow(`SELECT doc FROM docs_vocab WHERE term = ?`, w).Scan(&df)
-		if df == 0 || float64(df) > 0.4*float64(total)+1 {
+		if df == 0 || (total >= 20 && float64(df) > 0.4*float64(total)) {
 			continue // unknown words don't find neighbours; very common ones don't tell them apart
 		}
 		list = append(list, scored{w, (1 + math.Log(float64(c))) * math.Log(float64(total+1)/float64(df))})

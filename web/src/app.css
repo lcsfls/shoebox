@@ -110,3 +110,41 @@ mark { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2p
 @media (min-width: 900px) {
   .page { padding: 28px 32px 40px; }
 }
+@media (min-width: 900px) { .mobile-only { display: none !important; } }
+
+/* Tag colors: a soft fill with dark ink in light mode, a deep fill with light
+   ink in dark mode. data-c holds the color's name (see lib/tags.js). */
+.chip[data-c="sand"]  { --c-bg: #F1E4D3; --c-ink: #5C3A1A; }
+.chip[data-c="clay"]  { --c-bg: #F6DCCF; --c-ink: #7A3418; }
+.chip[data-c="rose"]  { --c-bg: #F5D9DF; --c-ink: #7C2840; }
+.chip[data-c="plum"]  { --c-bg: #E8DDF0; --c-ink: #55306E; }
+.chip[data-c="sky"]   { --c-bg: #D9E7F3; --c-ink: #1F4A6E; }
+.chip[data-c="teal"]  { --c-bg: #D3EDE8; --c-ink: #165A52; }
+.chip[data-c="moss"]  { --c-bg: #DDECD3; --c-ink: #2F5A1F; }
+.chip[data-c="olive"] { --c-bg: #ECEACB; --c-ink: #59541A; }
+.chip[data-c="amber"] { --c-bg: #FBE7B8; --c-ink: #6B4A0B; }
+.chip[data-c="slate"] { --c-bg: #E3E3E6; --c-ink: #3A3D48; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .chip[data-c="sand"]  { --c-bg: #3A2E22; --c-ink: #F1D9BC; }
+  :root:not([data-theme="light"]) .chip[data-c="clay"]  { --c-bg: #45291F; --c-ink: #F4C3AC; }
+  :root:not([data-theme="light"]) .chip[data-c="rose"]  { --c-bg: #45232C; --c-ink: #F2BACA; }
+  :root:not([data-theme="light"]) .chip[data-c="plum"]  { --c-bg: #35283F; --c-ink: #D9C3EA; }
+  :root:not([data-theme="light"]) .chip[data-c="sky"]   { --c-bg: #1F3242; --c-ink: #B9D6EE; }
+  :root:not([data-theme="light"]) .chip[data-c="teal"]  { --c-bg: #1B3A36; --c-ink: #A8DCD2; }
+  :root:not([data-theme="light"]) .chip[data-c="moss"]  { --c-bg: #263823; --c-ink: #C0DDAC; }
+  :root:not([data-theme="light"]) .chip[data-c="olive"] { --c-bg: #36351E; --c-ink: #DCD79D; }
+  :root:not([data-theme="light"]) .chip[data-c="amber"] { --c-bg: #3B2F17; --c-ink: #F2C66D; }
+  :root:not([data-theme="light"]) .chip[data-c="slate"] { --c-bg: #2C2D33; --c-ink: #D2D4DC; }
+}
+:root[data-theme="dark"] .chip[data-c="sand"]  { --c-bg: #3A2E22; --c-ink: #F1D9BC; }
+:root[data-theme="dark"] .chip[data-c="clay"]  { --c-bg: #45291F; --c-ink: #F4C3AC; }
+:root[data-theme="dark"] .chip[data-c="rose"]  { --c-bg: #45232C; --c-ink: #F2BACA; }
+:root[data-theme="dark"] .chip[data-c="plum"]  { --c-bg: #35283F; --c-ink: #D9C3EA; }
+:root[data-theme="dark"] .chip[data-c="sky"]   { --c-bg: #1F3242; --c-ink: #B9D6EE; }
+:root[data-theme="dark"] .chip[data-c="teal"]  { --c-bg: #1B3A36; --c-ink: #A8DCD2; }
+:root[data-theme="dark"] .chip[data-c="moss"]  { --c-bg: #263823; --c-ink: #C0DDAC; }
+:root[data-theme="dark"] .chip[data-c="olive"] { --c-bg: #36351E; --c-ink: #DCD79D; }
+:root[data-theme="dark"] .chip[data-c="amber"] { --c-bg: #3B2F17; --c-ink: #F2C66D; }
+:root[data-theme="dark"] .chip[data-c="slate"] { --c-bg: #2C2D33; --c-ink: #D2D4DC; }
+.chip[data-c] { background: var(--c-bg); color: var(--c-ink); }
+.chip[data-c]::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.55; flex: none; }

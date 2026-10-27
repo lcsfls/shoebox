@@ -1,6 +1,7 @@
 <script>
   // Tags as chips; type and press Enter or comma. Suggestions from existing tags.
-  let { tags = $bindable([]), suggestions = [], id = 'tags' } = $props();
+  import { tagInfo, colorFor } from '../lib/tags.js';
+  let { tags = $bindable([]), suggestions = [], id = 'tags', learned = [] } = $props();
   let text = $state('');
 
   function add(t) {
@@ -18,7 +19,8 @@
 
 <div class="tagbox">
   {#each tags as t (t)}
-    <button type="button" class="chip" onclick={() => remove(t)} aria-label="Remove tag {t}">{t}<span aria-hidden="true">×</span></button>
+    <button type="button" class="chip" class:learned={learned.includes(t)} data-c={colorFor(t, $tagInfo)} onclick={() => remove(t)}
+      aria-label="Remove tag {t}" title={learned.includes(t) ? 'Suggested because similar documents have it' : undefined}>{t}<span aria-hidden="true">×</span></button>
   {/each}
   <input {id} type="text" bind:value={text} onkeydown={key} onblur={() => text && add(text)} placeholder={tags.length ? '' : 'Add tags …'} autocomplete="off" />
 </div>
@@ -36,6 +38,7 @@
   .tagbox input { flex: 1; min-width: 90px; border: 0; background: transparent; min-height: 30px; padding: 0 4px; outline: none; }
   .chip span { opacity: 0.7; margin-left: 2px; }
   .chip { cursor: pointer; }
+  .chip.learned { outline: 1px dashed currentColor; outline-offset: -1px; }
   .sugg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .sugg .chip { background: transparent; border: 1px dashed var(--line-strong); color: var(--ink-2); }
 </style>

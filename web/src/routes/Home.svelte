@@ -2,6 +2,9 @@
   import { onMount } from 'svelte';
   import { api, upload } from '../lib/api.js';
   import { toast, counts, user, can } from '../lib/stores.js';
+  import { fly } from 'svelte/transition';
+  import { motion } from '../lib/motion.js';
+  import { tagInfo, colorFor } from '../lib/tags.js';
   import { navigate } from '../lib/router.js';
   import { formatDate } from '../lib/format.js';
   import Icon from '../components/Icon.svelte';
@@ -95,14 +98,16 @@
       </div>
       {#if data.recent.length}
         <ul class="recent">
-          {#each data.recent as d (d.id)}
-            <li>
+          {#each data.recent as d, i (d.id)}
+            <li in:fly={motion({ y: 6, duration: 220, delay: Math.min(i, 8) * 30 })}>
               <a href="/doc/{d.id}">
-                <Icon name="file" />
+                <span class="r-thumb"><Thumb id={d.id} updated={d.updated_at} /></span>
                 <span class="grow">
                   <span class="r-title">{d.title || 'Untitled'}{#if d.sender}{' '}<span class="muted">· {d.sender}</span>{/if}</span>
                   <span class="mono muted path">{d.path}</span>
+                  {#if d.tags?.length}<span class="r-tags">{#each d.tags.slice(0, 3) as t (t)}<span class="chip" data-c={colorFor(t, $tagInfo)}>{t}</span>{/each}</span>{/if}
                 </span>
+                {#if d.date}<span class="r-date muted small">{formatDate(d.date)}</span>{/if}
               </a>
             </li>
           {/each}
@@ -143,7 +148,12 @@
   .mini { display: flex; flex-direction: column; gap: 6px; padding: 8px; text-decoration: none; color: var(--ink); scroll-snap-align: start; }
   .mini-title { font-weight: 600; font-size: 0.88rem; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .recent { list-style: none; margin: 0; padding: 0; }
-  .recent a { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+  .r-thumb { width: 42px; flex: none; }
+  .r-thumb :global(.thumb) { border-radius: 5px; box-shadow: 0 0 0 1px var(--line); }
+  .r-tags { display: flex; gap: 4px; margin-top: 4px; overflow: hidden; }
+  .r-tags .chip { min-height: 20px; font-size: 0.72rem; padding: 0 7px; }
+  .r-date { flex: none; font-variant-numeric: tabular-nums; }
+  .recent a { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line); color: var(--ink); text-decoration: none; }
   .recent a:hover .r-title { color: var(--accent); }
   .recent .grow { display: flex; flex-direction: column; min-width: 0; }
   .r-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

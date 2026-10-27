@@ -178,7 +178,64 @@ try {
   mock.close();
   log('paperless import ok');
 
-  for (const tab of ['general', 'ocr', 'names', 'users']) {
+  // tag colors
+  await d.goto(B + '/settings/names');
+  await d.getByRole('button', { name: 'Color of Strom' }).click();
+  await d.getByRole('radio', { name: 'sky' }).click();
+  await until(d, async () => (await api(d, '/api/tags')).find((t) => t.name === 'Strom')?.color === 'sky', 'the tag color');
+  await d.getByRole('button', { name: 'Color of Strom' }).click();
+  await d.waitForTimeout(300);
+  await shot(d, '15-tag-colors', true);
+  await d.getByRole('button', { name: 'Color of Strom' }).click();
+
+  // mark the date on the page instead of typing it
+  const billDoc = (await api(d, '/api/docs?q=' + encodeURIComponent('Stromrechnung Oktober'))).docs?.[0];
+  await d.goto(B + '/doc/' + billDoc.id);
+  await d.getByRole('button', { name: 'Edit' }).click();
+  await d.getByLabel('Document date').fill('');
+  await d.getByRole('button', { name: 'Mark the date on the page' }).click();
+  await d.getByRole('dialog', { name: /Mark the date/ }).waitFor();
+  const words = await api(d, `/api/docs/${billDoc.id}/words/1`);
+  const w = words.find((x) => /24\.10\.2026/.test(x.t));
+  if (!w) problems.push('marker: the date is not among the words of page 1');
+  else {
+    const img = await d.locator('.marker .sheet img').boundingBox();
+    const x0 = img.x + (w.x - 0.01) * img.width, y0 = img.y + (w.y - 0.01) * img.height;
+    const x1 = img.x + (w.x + w.w + 0.01) * img.width, y1 = img.y + (w.y + w.h + 0.01) * img.height;
+    await d.mouse.move(x0, y0);
+    await d.mouse.down();
+    await d.mouse.move(x1, y1, { steps: 8 });
+    await d.mouse.up();
+    await d.getByRole('button', { name: 'Use it' }).waitFor();
+    await until(d, async () => await d.getByRole('button', { name: 'Use it' }).isEnabled(), 'the marked date', 10000);
+    await shot(d, '16-marker');
+    await d.getByRole('button', { name: 'Use it' }).click();
+    const v = await d.getByLabel('Document date').inputValue();
+    if (v !== '2026-10-24') problems.push(`marker: date field is "${v}"`);
+  }
+  await d.getByRole('button', { name: 'Cancel' }).click();
+  log('marker ok');
+
+  // statistics, a backup, rule suggestions, an API token
+  await d.goto(B + '/stats');
+  await d.getByRole('heading', { name: 'Statistics' }).waitFor();
+  await d.waitForTimeout(600);
+  await shot(d, '17-stats', true);
+  await d.goto(B + '/settings/storage');
+  await d.getByRole('button', { name: 'Back up now' }).click();
+  await d.getByText(/Backup saved/).waitFor();
+  if (!fs.readdirSync(path.join(ARCHIVE, '.shoebox-backup')).some((f) => f.endsWith('.db'))) problems.push('backup: no file in the archive folder');
+  await shot(d, '18-backup', true);
+  await d.goto(B + '/settings/api');
+  await d.getByLabel('Name', { exact: false }).first().fill('Scanner im Büro');
+  await d.getByRole('button', { name: 'Create token' }).click();
+  const tokenValue = await d.getByLabel('New API token').inputValue();
+  const viaToken = await fetch(B + '/api/docs?q=strom', { headers: { Authorization: 'Bearer ' + tokenValue } });
+  if (viaToken.status !== 200 || !(await viaToken.json()).total) problems.push(`api token: ${viaToken.status}`);
+  await shot(d, '19-api', true);
+  log('stats, backup, api ok');
+
+  for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules']) {
     await d.goto(B + '/settings/' + tab);
     await d.waitForTimeout(700);
     await shot(d, `12-settings-${tab}`, true);
@@ -258,6 +315,25 @@ try {
   await shot(p, '28-phone-review');
   log('scan ok');
 
+  // change the pages afterwards: turn the first, swap them (desktop)
+  await d.goto(B + `/doc/${scanJob.doc_id}`);
+  await d.getByRole('button', { name: 'Edit pages' }).click();
+  await d.getByRole('dialog', { name: 'Edit pages' }).waitFor();
+  await d.getByRole('button', { name: 'Turn page 1' }).click();
+  await d.getByRole('button', { name: 'Move page 1 later' }).click();
+  await d.waitForTimeout(500);
+  await shot(d, '31-page-editor');
+  await d.getByRole('button', { name: 'Crop page 2' }).click();
+  await d.getByRole('button', { name: 'Crop', exact: true }).waitFor();
+  await d.waitForTimeout(400);
+  await shot(d, '32-page-crop');
+  await d.getByRole('button', { name: 'Crop', exact: true }).click();
+  await d.getByRole('button', { name: 'Save pages' }).click();
+  await d.getByText('Pages saved').waitFor();
+  const edited = await api(d, `/api/docs/${scanJob.doc_id}`);
+  if (edited.doc?.pages !== 2) problems.push(`page editor: ${edited.doc?.pages} pages after saving`);
+  log('page editor ok');
+
   // without HTTPS the camera app is used instead (simulated: no getUserMedia)
   const plain = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, storageState: await desk.storageState() });
   const q = await plain.newPage();
@@ -268,6 +344,34 @@ try {
   await q.locator('input[capture]').setInputFiles(LETTER_PNG);
   await q.getByText('Adjust the corners').waitFor();
   await shot(q, '30-phone-scan-photo-crop');
+
+  // passkeys: a virtual authenticator; WebAuthn needs a host name, so use localhost
+  const L = B.replace('127.0.0.1', 'localhost');
+  const pk = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const k = await pk.newPage();
+  watch(k, 'passkey');
+  k.setDefaultTimeout(20000);
+  const cdp = await pk.newCDPSession(k);
+  await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+  await k.goto(L + '/');
+  await k.getByLabel('Username').fill('anna');
+  await k.getByLabel('Password').fill('a-long-password');
+  await k.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await k.goto(L + '/settings/account');
+  await k.getByLabel('Name of this device').fill('Test laptop');
+  await k.getByRole('button', { name: 'Add a passkey' }).click();
+  await k.getByText('Passkey added').waitFor();
+  await k.getByText('Test laptop').waitFor();
+  await shot(k, '33-passkeys');
+  await k.goto(L + '/settings/general');
+  await k.getByRole('button', { name: 'Sign out' }).click();
+  await k.getByRole('button', { name: 'Sign in with a passkey' }).click();
+  await k.locator('a[href="/archive"]').first().waitFor();
+  const me = await api(k, '/api/me');
+  if (me.user?.username !== 'anna') problems.push(`passkey sign-in: ${JSON.stringify(me)}`);
+  await shot(k, '34-login-passkey');
+  log('passkeys ok');
 
   // PWA basics
   const manifest = await (await fetch(B + '/manifest.webmanifest')).json();
