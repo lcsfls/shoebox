@@ -31,7 +31,7 @@
 {#if lh}
   <form class="card sec" onsubmit={save}>
     <h2>Letterhead</h2>
-    <p class="muted small">The sender of letters written in this library: shown at the top, in the return line above the address window, and in the footer.</p>
+    <p class="muted small">The sender of letters written in this library. As DIN 5008 has it, name and address go into the small return line above the recipient, phone, email and website into the block on the right, and the footer at the bottom. Only the logo sits at the top.</p>
     <div class="two">
       <label class="field">Name or company<input type="text" bind:value={lh.name} maxlength="120" /></label>
       <label class="field">Name under the signature<input type="text" bind:value={lh.signer} maxlength="120" /><span class="hint">Used for new letters; leave empty to use the name.</span></label>

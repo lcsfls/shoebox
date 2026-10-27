@@ -57,9 +57,9 @@ type Letter struct {
 }
 
 var letterWords = map[string]map[string]string{
-	"de": {"your": "Ihr Zeichen", "our": "Unser Zeichen", "phone": "Telefon", "email": "E-Mail", "date": "Datum",
+	"de": {"your": "Ihr Zeichen", "our": "Unser Zeichen", "phone": "Telefon", "email": "E-Mail", "web": "Internet", "date": "Datum",
 		"page": "Seite %d von %d", "encl": "Anlagen", "encl1": "Anlage"},
-	"en": {"your": "Your reference", "our": "Our reference", "phone": "Phone", "email": "Email", "date": "Date",
+	"en": {"your": "Your reference", "our": "Our reference", "phone": "Phone", "email": "Email", "web": "Web", "date": "Date",
 		"page": "Page %d of %d", "encl": "Enclosures", "encl1": "Enclosure"},
 }
 
@@ -165,33 +165,13 @@ func layoutLetter(lh Letterhead, l Letter) []*letterPage {
 	page := &letterPage{}
 	pages := []*letterPage{page}
 
-	// letterhead: name, then the address and contact in a small line
-	head := 18 * mm
-	if formA {
-		head = 13 * mm
-	}
-	if lh.Name != "" {
-		page.runs = append(page.runs, textRun{x: left, y: head, size: 15, bold: true, text: lh.Name})
-	}
+	// DIN 5008: the sender is the return line above the recipient and the
+	// contact rows of the information block; the head only holds the logo
 	var info []string
-	for _, s := range strings.Split(lh.Address, "\n") {
-		if s = strings.TrimSpace(s); s != "" {
-			info = append(info, s)
+	for _, ln := range strings.Split(lh.Address, "\n") {
+		if ln = strings.TrimSpace(ln); ln != "" {
+			info = append(info, ln)
 		}
-	}
-	contact := []string{}
-	if lh.Phone != "" {
-		contact = append(contact, lh.Phone)
-	}
-	if lh.Email != "" {
-		contact = append(contact, lh.Email)
-	}
-	if lh.Web != "" {
-		contact = append(contact, lh.Web)
-	}
-	small := strings.Join(append(append([]string{}, info...), contact...), "  ·  ")
-	for i, ln := range wrap(small, 8.5, width-(70*mm)*boolf(lh.HasLogo), false) {
-		page.runs = append(page.runs, textRun{x: left, y: head + 6*mm + float64(i)*10.5, size: 8.5, gray: true, text: ln})
 	}
 
 	// the address field: return address, then the recipient
@@ -237,6 +217,7 @@ func layoutLetter(lh Letterhead, l Letter) []*letterPage {
 	row(words["our"], l.OurRef)
 	row(words["phone"], lh.Phone)
 	row(words["email"], lh.Email)
+	row(words["web"], lh.Web)
 	row(words["date"], letterDate(l.Date, l.Lang))
 
 	// the text
@@ -331,12 +312,6 @@ func layoutLetter(lh Letterhead, l Letter) []*letterPage {
 	return pages
 }
 
-func boolf(b bool) float64 {
-	if b {
-		return 1
-	}
-	return 0
-}
 
 // renderLetter makes the PDF.
 func renderLetter(lh Letterhead, l Letter) []byte {
