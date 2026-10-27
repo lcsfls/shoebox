@@ -128,12 +128,12 @@
     <h2>Mark {what[kind]}</h2>
     {#if pages > 1}
       <div class="pager">
-        <button class="btn small ghost iconbtn" onclick={() => go(-1)} disabled={page <= 1} aria-label="Previous page"><Icon name="back" /></button>
+        <button type="button" class="btn small ghost iconbtn" onclick={() => go(-1)} disabled={page <= 1} aria-label="Previous page"><Icon name="back" /></button>
         <span class="small">Page {page} of {pages}</span>
-        <button class="btn small ghost iconbtn flip" onclick={() => go(1)} disabled={page >= pages} aria-label="Next page"><Icon name="back" /></button>
+        <button type="button" class="btn small ghost iconbtn flip" onclick={() => go(1)} disabled={page >= pages} aria-label="Next page"><Icon name="back" /></button>
       </div>
     {/if}
-    <button class="btn ghost iconbtn" onclick={onclose} aria-label="Close"><Icon name="close" /></button>
+    <button type="button" class="btn ghost iconbtn" onclick={onclose} aria-label="Close"><Icon name="close" /></button>
   </header>
   <p class="help muted small">Drag a box around it on the page, or click a word. Drag the box or its corners to adjust.</p>
 
@@ -171,8 +171,8 @@
         <span class="muted small">Nothing marked yet.</span>
       {/if}
     </div>
-    <button class="btn" onclick={onclose}>Cancel</button>
-    <button class="btn primary" onclick={use} disabled={!usable}><Icon name="check" />Use it</button>
+    <button type="button" class="btn" onclick={onclose}>Cancel</button>
+    <button type="button" class="btn primary" onclick={use} disabled={!usable}><Icon name="check" />Use it</button>
   </footer>
 </div>
 
