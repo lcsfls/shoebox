@@ -86,3 +86,16 @@ func TestStampLabel(t *testing.T) {
 		t.Errorf("empty label: %q", l)
 	}
 }
+
+func TestFreeSpot(t *testing.T) {
+	sh := 0.09
+	x, y := freeSpot(nil, 0.27, sh)
+	if x != 1-0.27-0.035 || y != 0.035 {
+		t.Errorf("empty page: %v %v", x, y)
+	}
+	// a stamp in the top right corner: the next one goes below it
+	x, y = freeSpot([]pageWord{{X: 0.695, Y: 0.035, W: 0.27, H: sh}}, 0.27, sh)
+	if y < 0.035+sh {
+		t.Errorf("second stamp at %v %v", x, y)
+	}
+}

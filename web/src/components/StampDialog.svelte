@@ -9,7 +9,7 @@
   import Icon from './Icon.svelte';
 
   import { stampConfig, stampDate } from '../lib/stamps.js';
-  let { doc, kind = 'in', config = stampConfig(null), stamps = [], onstamped, onclose } = $props();
+  let { doc, kind = 'in', config = stampConfig(null), onstamped, onclose } = $props();
   let lang = $state(untrack(() => config.lang)); // the settings' language first
   let label = $derived(config[lang][kind]);
   let color = $derived(kind === 'paid' ? '#B3261E' : '#1F4F9E');
@@ -30,27 +30,11 @@
   let sh = $derived(size ? (size.stamp_w * size.stamp_ratio * size.w) / size.h : 0.14);
   let printed = $derived(stampDate(date, lang));
 
-  // a free spot: corners first, away from the text
-  function place(words) {
-    const m = 0.035;
-    const spots = [
-      { x: 1 - sw - m, y: m }, { x: 1 - sw - m, y: 0.12 }, { x: 1 - sw - m, y: 0.22 }, { x: m, y: m },
-      { x: 1 - sw - m, y: 1 - sh - m }, { x: m, y: 1 - sh - m }, { x: (1 - sw) / 2, y: 1 - sh - m },
-    ];
-    const pad = 0.01;
-    // the words on the page, and the stamps already there
-    const taken = [...words, ...stamps.filter((s) => s.page === page && (s.x || s.y)).map((s) => ({ x: s.x, y: s.y, w: sw, h: sh }))];
-    const free = (p) => !taken.some((w) => w.x < p.x + sw + pad && w.x + w.w > p.x - pad && w.y < p.y + sh + pad && w.y + w.h > p.y - pad);
-    const spot = spots.find(free) || spots[0];
-    if (typeof window !== 'undefined') window.__stampPlace = { words: words.length, stamps: stamps.length, taken: taken.length, sw, sh, spot };
-    return spot;
-  }
-
+  // the server suggests a free spot, away from the text and earlier stamps
   async function loadPage() {
     try {
-      const [sz, words] = await Promise.all([api.get(`/api/docs/${doc.id}/pagesize/${page}`), api.get(`/api/docs/${doc.id}/words/${page}`).catch(() => [])]);
-      size = sz;
-      pos = place(words);
+      size = await api.get(`/api/docs/${doc.id}/pagesize/${page}`);
+      if (size.x != null) pos = { x: size.x, y: size.y };
     } catch (e) { toast(e.message, 'error'); }
   }
   onMount(() => {

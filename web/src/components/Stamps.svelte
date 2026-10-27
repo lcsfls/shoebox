@@ -49,7 +49,7 @@
 </div>
 
 {#if open}
-  <StampDialog {doc} kind={open} {config} stamps={list} onclose={() => (open = '')} onstamped={(r) => { open = ''; fresh = r.stamps; onchange?.(r); }} />
+  <StampDialog {doc} kind={open} {config} onclose={() => (open = '')} onstamped={(r) => { open = ''; fresh = r.stamps; onchange?.(r); }} />
 {/if}
 
 <style>

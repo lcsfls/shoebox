@@ -303,7 +303,40 @@ func (a *App) handlePageSize(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]any{"w": pw, "h": ph, "stamp_w": stampWidth, "stamp_ratio": stampH / stampW})
+	out := map[string]any{"w": pw, "h": ph, "stamp_w": stampWidth, "stamp_ratio": stampH / stampW}
+	// a free spot for the next stamp: away from the text and the stamps there
+	if b, err := run(r.Context(), time.Minute, "pdftotext", "-bbox", "-f", strconv.Itoa(n), "-l", strconv.Itoa(n), src, "-"); err == nil {
+		words := parseBBox(string(b), pw, ph)
+		sh := stampWidth * (stampH / stampW) * pw / ph
+		for _, s := range a.docStamps(d.ID) {
+			if s.Page == n && (s.X > 0 || s.Y > 0) {
+				words = append(words, pageWord{X: s.X, Y: s.Y, W: stampWidth, H: sh})
+			}
+		}
+		x, y := freeSpot(words, stampWidth, sh)
+		out["x"], out["y"] = x, y
+	}
+	writeJSON(w, 200, out)
+}
+
+// freeSpot picks the first corner spot that no word (or stamp) overlaps.
+func freeSpot(taken []pageWord, sw, sh float64) (float64, float64) {
+	const m, pad = 0.035, 0.01
+	spots := [][2]float64{{1 - sw - m, m}, {1 - sw - m, 0.12}, {1 - sw - m, 0.22}, {m, m},
+		{1 - sw - m, 1 - sh - m}, {m, 1 - sh - m}, {(1 - sw) / 2, 1 - sh - m}}
+	for _, p := range spots {
+		free := true
+		for _, w := range taken {
+			if w.X < p[0]+sw+pad && w.X+w.W > p[0]-pad && w.Y < p[1]+sh+pad && w.Y+w.H > p[1]-pad {
+				free = false
+				break
+			}
+		}
+		if free {
+			return p[0], p[1]
+		}
+	}
+	return spots[0][0], spots[0][1]
 }
 
 func (a *App) beforeStamps(id int64) string {
