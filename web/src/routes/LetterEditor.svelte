@@ -22,7 +22,7 @@
     en: { salutation: 'Dear Sir or Madam,', closing: 'Yours faithfully' },
   };
   const pick = (x) => Object.fromEntries(fields.map((k) => [k, x[k]]));
-  let saved = '';
+  let saved = $state('');
 
   onMount(async () => {
     try {
