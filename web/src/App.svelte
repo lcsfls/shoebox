@@ -15,6 +15,8 @@
   import DocView from './routes/DocView.svelte';
   import Settings from './routes/Settings.svelte';
   import Stats from './routes/Stats.svelte';
+  import Letters from './routes/Letters.svelte';
+  import LetterEditor from './routes/LetterEditor.svelte';
 
   let needsSetup = $state(false);
   let updateTo = $state(''); // a newer release, shown to admins
@@ -85,11 +87,12 @@
     { href: '/', label: 'Home', icon: 'home', key: '', role: 'viewer' },
     { href: '/review', label: 'Review', icon: 'inbox', key: 'review', role: 'member' },
     { href: '/archive', label: 'Archive', icon: 'folder', key: 'archive', role: 'viewer' },
+    { href: '/letters', label: 'Letters', icon: 'letter', key: 'letters', role: 'viewer', wide: true },
     { href: '/stats', label: 'Statistics', icon: 'chart', key: 'stats', role: 'viewer', wide: true },
     { href: '/settings', label: 'Settings', icon: 'settings', key: 'settings', role: 'viewer' },
   ];
   let nav = $derived(allNav.filter((n) => (n.key === 'review' ? $canEdit : can($user, n.role))));
-  // the phone's tab bar keeps four tabs; statistics is reached from Settings there
+  // the phone's tab bar keeps four tabs; letters and statistics are reached from Settings there
   let tabNav = $derived(nav.filter((n) => !n.wide));
   let fullscreen = $derived(section === 'scan');
 </script>
@@ -142,6 +145,10 @@
         <Archive />
       {:else if section === 'doc' && parts[1]}
         <DocView id={Number(parts[1])} />
+      {:else if section === 'letters' && parts[1]}
+        {#key parts[1]}<LetterEditor id={Number(parts[1])} />{/key}
+      {:else if section === 'letters'}
+        <Letters />
       {:else if section === 'stats'}
         <Stats />
       {:else if section === 'settings'}

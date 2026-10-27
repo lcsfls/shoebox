@@ -13,7 +13,7 @@
     try { s = await api.get('/api/stats'); } catch (e) { error = e.message; }
   });
 
-  const sourceNames = { scan: 'Scanned with the phone', upload: 'Uploaded', folder: 'Copied into the archive folder', paperless: 'Imported from Paperless' };
+  const sourceNames = { scan: 'Scanned with the phone', upload: 'Uploaded', folder: 'Copied into the archive folder', paperless: 'Imported from Paperless', letter: 'Written as a letter' };
   const ocrNames = { pdf: 'Had text already', tesseract: 'Tesseract', 'tesseract+ai': 'Tesseract and AI model', 'pdf+ai': 'AI model' };
   const lang = navigator.language || 'en';
   const n = (x) => (x ?? 0).toLocaleString();

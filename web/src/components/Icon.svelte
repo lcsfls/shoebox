@@ -37,6 +37,9 @@
     eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
     text: 'M4 7h16M4 12h10M4 17h7',
     edit: 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
+    letter: 'M3 6h18v12H3zM3 7l9 6 9-6',
+    print: 'M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z',
+    copy: 'M8 8h12v12H8zM4 16V4h12',
   };
 </script>
 

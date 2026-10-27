@@ -30,9 +30,9 @@ type Letterhead struct {
 	Footer   string `json:"footer"`   // up to three columns, separated by a blank line (bank, tax number …)
 	Signer   string `json:"signer"`   // name under the signature, default Name
 	HasLogo  bool   `json:"has_logo"` // a logo was uploaded
+	LogoW    int    `json:"logo_w"`
+	LogoH    int    `json:"logo_h"`
 	logoJPEG []byte
-	logoW    int
-	logoH    int
 }
 
 type Letter struct {
@@ -363,7 +363,7 @@ func renderLetter(lh Letterhead, l Letter) []byte {
 	logo := 0
 	if lh.HasLogo && len(lh.logoJPEG) > 0 {
 		logo = add(fmt.Sprintf("<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
-			lh.logoW, lh.logoH, len(lh.logoJPEG), lh.logoJPEG))
+			lh.LogoW, lh.LogoH, len(lh.logoJPEG), lh.logoJPEG))
 	}
 	var kids []string
 	for i, p := range pages {
@@ -398,8 +398,8 @@ func renderLetter(lh Letterhead, l Letter) []byte {
 			if logo > 0 {
 				// top right, at most 60 × 25 mm
 				maxW, maxH := 60*mm, 25*mm
-				s := min(maxW/float64(lh.logoW), maxH/float64(lh.logoH))
-				w, h := float64(lh.logoW)*s, float64(lh.logoH)*s
+				s := min(maxW/float64(lh.LogoW), maxH/float64(lh.LogoH))
+				w, h := float64(lh.LogoW)*s, float64(lh.LogoH)*s
 				top := 12 * mm
 				if formA {
 					top = 8 * mm

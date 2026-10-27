@@ -12,20 +12,21 @@
   import Updates from './settings/Updates.svelte';
   import { user, can, canEdit } from '../lib/stores.js';
   import Libraries from './settings/Libraries.svelte';
+  import Letterhead from './settings/Letterhead.svelte';
 
   let { tab = 'general', version = '', cycleTheme, theme } = $props();
   // [key, label, who may open it]
   const all = [
     ['general', 'General', 'viewer'], ['account', 'Account & passkeys', 'viewer'], ['storage', 'Storage', 'admin'],
     ['ocr', 'Text recognition & AI', 'admin'], ['rules', 'Sorting rules', 'editor'], ['import', 'Import from Paperless', 'admin'],
-    ['names', 'Tags & senders', 'editor'], ['libraries', 'Libraries', 'admin'], ['users', 'Users', 'admin'], ['api', 'API', 'viewer'], ['updates', 'Updates', 'admin'],
+    ['names', 'Tags & senders', 'editor'], ['letterhead', 'Letterhead', 'editor'], ['libraries', 'Libraries', 'admin'], ['users', 'Users', 'admin'], ['api', 'API', 'viewer'], ['updates', 'Updates', 'admin'],
   ];
   let tabs = $derived(all.filter(([, , role]) => (role === 'editor' ? $canEdit : can($user, role))));
   let allowed = $derived(tabs.some(([k]) => k === tab));
 </script>
 
 <div class="page settings">
-  <div class="page-head"><h1>Settings</h1><a class="btn small mobile-only" href="/stats"><Icon name="chart" />Statistics</a></div>
+  <div class="page-head"><h1>Settings</h1><a class="btn small mobile-only" href="/letters"><Icon name="letter" />Letters</a><a class="btn small mobile-only" href="/stats"><Icon name="chart" />Statistics</a></div>
   <div class="layout">
     <nav class="sub" aria-label="Settings">
       {#each tabs as [k, label] (k)}
@@ -44,6 +45,7 @@
       {:else if tab === 'rules'}<Rules />
       {:else if tab === 'import'}<Import />
       {:else if tab === 'names'}<Names />
+      {:else if tab === 'letterhead'}<Letterhead />
       {:else if tab === 'users'}<Users />
       {:else}<p>Unknown section.</p>{/if}
     </div>

@@ -74,7 +74,7 @@
     }
   }
 
-  const sources = { scan: 'Scanned', upload: 'Uploaded', folder: 'Found in the archive folder', paperless: 'Imported from Paperless' };
+  const sources = { scan: 'Scanned', upload: 'Uploaded', folder: 'Found in the archive folder', paperless: 'Imported from Paperless', letter: 'Written in Shoebox' };
   const ocrNames = { pdf: 'text already in the PDF', tesseract: 'Tesseract', paperless: 'Paperless', 'tesseract+ai': 'Tesseract and the AI model', 'pdf+ai': 'AI model' };
 </script>
 

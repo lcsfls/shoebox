@@ -296,6 +296,40 @@ try {
   await shot(d, '19-api', true);
   log('stats, backup, api ok');
 
+  // a letter: letterhead, draft with preview, PDF, finish into the archive
+  await d.goto(B + '/settings/letterhead');
+  await d.getByLabel('Name or company').fill('Beispiel Werkstatt');
+  await d.getByLabel('Address').fill('Am Markt 3\n12345 Musterstadt');
+  await d.getByLabel('Footer').fill('Musterbank\nIBAN DE00 0000 0000\n\nSteuernummer 12/345/67890');
+  await d.getByRole('button', { name: 'Save', exact: true }).click();
+  await d.getByText('Letterhead saved').waitFor();
+  await shot(d, '40-letterhead', true);
+  await d.goto(B + '/letters');
+  await d.getByRole('button', { name: 'Write the first letter' }).click();
+  await d.waitForURL(/\/letters\/\d+$/);
+  const letterID = Number(d.url().split('/').pop());
+  await d.getByLabel('Recipient').fill('Empfänger GmbH\nHauptstraße 1\n54321 Zielstadt');
+  await d.getByLabel('Subject').fill('Kündigung der Mitgliedschaft');
+  await d.getByLabel('Text', { exact: true }).fill('hiermit kündige ich meine Mitgliedschaft fristgerecht.\n\nBitte bestätigen Sie den Eingang.');
+  await until(d, async () => (await api(d, `/api/letters/${letterID}`)).subject === 'Kündigung der Mitgliedschaft', 'the letter to save', 15000);
+  await d.getByRole('img', { name: 'Page 1' }).waitFor();
+  await d.waitForTimeout(1500);
+  await shot(d, '41-letter-editor');
+  const letterPDF = await d.evaluate(async (u) => { const r = await fetch(u); const b = new Uint8Array(await r.arrayBuffer()); return [r.status, r.headers.get('content-type'), String.fromCharCode(...b.slice(0, 5))]; },
+    `/api/letters/${letterID}/pdf?library=1`);
+  if (letterPDF[0] !== 200 || letterPDF[2] !== '%PDF-') problems.push(`letter pdf: ${letterPDF}`);
+  await d.getByRole('button', { name: 'Finish', exact: true }).click();
+  await d.getByRole('button', { name: 'Finish and file' }).click();
+  await d.getByText('Finished and filed in the archive').waitFor();
+  await d.getByRole('link', { name: 'In the archive' }).waitFor();
+  const finished = await api(d, `/api/letters/${letterID}`);
+  const filed = finished.doc_id ? (await api(d, `/api/docs/${finished.doc_id}`)).doc : null;
+  if (!filed || filed.status !== 'filed' || !(filed.tags || []).some((t) => t === 'Sent' || t === 'Postausgang')) problems.push(`letter finish: ${JSON.stringify(filed)}`);
+  const hits = await api(d, '/api/docs?q=Mitgliedschaft');
+  if (!hits.total) problems.push('letter: the archived letter is not found by its text');
+  await shot(d, '42-letter-finished');
+  log('letters ok');
+
   // a second library in its own folder, then switch to it and back
   const privDir = path.join(path.dirname(ARCHIVE), 'private');
   await d.goto(B + '/settings/libraries');

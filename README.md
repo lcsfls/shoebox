@@ -28,6 +28,8 @@ No Redis, no Celery, no PostgreSQL: one Go binary with a SQLite index, Tesseract
 - **The folder works both ways.** Copy a PDF into the archive (for example straight onto the NAS into `2026/01`) and Shoebox adds it to the library, adds a text layer if it has none, and dates it by its folder. Files you move or delete there are followed.
 - **Search** across the text, title, sender and tags, with word beginnings (`strom` finds “Stromrechnung”). Browse by year and month, tag or sender.
 - **Move over from Paperless-ngx** in a few clicks: documents, tags, correspondents, document types, dates, notes, custom fields and matching rules, through its API. Paperless is only read; you can test with 50 documents and run it again.
+- **Stamps.** “Eingang” / “Received” and “Bezahlt” / “Paid” with the date, burned into the PDF where the page has room; the unstamped version is kept.
+- **Write letters.** DIN 5008 letters (form A or B, German or English) with your letterhead, logo and footer, a live preview, print, and on *Finish* a copy goes into the archive.
 - **Libraries you share.** Separate archives, each in its own folder (another NAS share, or a folder next to the first), with their own tags, senders and rules: a private one, one for the household, one for the company. Each is shared with chosen accounts, who can edit or only read.
 - **Accounts**, **passkeys** for signing in with the phone's or computer's screen lock, and **API tokens** for scripts and network scanners.
 - **Database backups** into the archive folder (the NAS) on a button press or every day.
