@@ -127,6 +127,7 @@
   .rows { list-style: none; margin: 0; padding: 0; }
   .rows li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
   select, .inline input { min-height: 36px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--field); color: var(--ink); padding: 0 8px; font: inherit; }
+  .rows select, .inline select { width: auto; flex: none; }
   .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .inline input { flex: 1; min-width: 0; }
   .two { display: grid; gap: 12px; }
