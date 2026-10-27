@@ -41,7 +41,9 @@
     // the words on the page, and the stamps already there
     const taken = [...words, ...stamps.filter((s) => s.page === page && (s.x || s.y)).map((s) => ({ x: s.x, y: s.y, w: sw, h: sh }))];
     const free = (p) => !taken.some((w) => w.x < p.x + sw + pad && w.x + w.w > p.x - pad && w.y < p.y + sh + pad && w.y + w.h > p.y - pad);
-    return spots.find(free) || spots[0];
+    const spot = spots.find(free) || spots[0];
+    if (typeof window !== 'undefined') window.__stampPlace = { words: words.length, stamps: stamps.length, taken: taken.length, sw, sh, spot };
+    return spot;
   }
 
   async function loadPage() {
