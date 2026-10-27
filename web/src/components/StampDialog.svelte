@@ -9,7 +9,7 @@
   import Icon from './Icon.svelte';
 
   import { stampConfig, stampDate } from '../lib/stamps.js';
-  let { doc, kind = 'in', config = stampConfig(null), onstamped, onclose } = $props();
+  let { doc, kind = 'in', config = stampConfig(null), stamps = [], onstamped, onclose } = $props();
   let lang = $state(untrack(() => config.lang)); // the settings' language first
   let label = $derived(config[lang][kind]);
   let color = $derived(kind === 'paid' ? '#B3261E' : '#1F4F9E');
@@ -38,7 +38,9 @@
       { x: 1 - sw - m, y: 1 - sh - m }, { x: m, y: 1 - sh - m }, { x: (1 - sw) / 2, y: 1 - sh - m },
     ];
     const pad = 0.01;
-    const free = (p) => !words.some((w) => w.x < p.x + sw + pad && w.x + w.w > p.x - pad && w.y < p.y + sh + pad && w.y + w.h > p.y - pad);
+    // the words on the page, and the stamps already there
+    const taken = [...words, ...stamps.filter((s) => s.page === page && (s.x || s.y)).map((s) => ({ x: s.x, y: s.y, w: sw, h: sh }))];
+    const free = (p) => !taken.some((w) => w.x < p.x + sw + pad && w.x + w.w > p.x - pad && w.y < p.y + sh + pad && w.y + w.h > p.y - pad);
     return spots.find(free) || spots[0];
   }
 

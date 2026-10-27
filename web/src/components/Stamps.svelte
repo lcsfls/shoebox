@@ -44,7 +44,7 @@
 </div>
 
 {#if open}
-  <StampDialog {doc} kind={open} {config} onclose={() => (open = '')} onstamped={(r) => { open = ''; onchange?.(r); }} />
+  <StampDialog {doc} kind={open} {config} {stamps} onclose={() => (open = '')} onstamped={(r) => { open = ''; onchange?.(r); }} />
 {/if}
 
 <style>

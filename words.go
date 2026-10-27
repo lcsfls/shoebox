@@ -69,6 +69,7 @@ func (a *App) handleDocWords(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store") // changes with stamps and page edits
 	cache := a.cacheFile(d.ID, "words-"+strconv.Itoa(n)+".json")
 	if b, err := os.ReadFile(cache); err == nil {
 		w.Header().Set("Content-Type", "application/json")

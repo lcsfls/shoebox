@@ -243,6 +243,7 @@ try {
   await d.getByText('Stamped “Paid”').waitFor();
   const paid = await api(d, `/api/docs/${billDoc.id}`);
   if (paid.stamps?.length !== 2 || !/PAID/.test(paid.text)) problems.push(`english stamp: ${JSON.stringify(paid.stamps)}`);
+  else if (Math.abs(paid.stamps[0].y - paid.stamps[1].y) < 0.05 && Math.abs(paid.stamps[0].x - paid.stamps[1].x) < 0.2) problems.push(`the second stamp sits on the first: ${JSON.stringify(paid.stamps.map((s) => [s.x, s.y]))}`);
   await d.waitForTimeout(1500);
   await shot(d, '38-stamped');
   log('stamp ok');

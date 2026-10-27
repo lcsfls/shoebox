@@ -157,6 +157,10 @@ var migrations = []string{
 		hash TEXT NOT NULL,
 		created_at TEXT NOT NULL);
 	CREATE INDEX stamps_doc ON stamps(doc_id);`,
+
+	// 4: where a stamp sits, so the next one finds another spot
+	`ALTER TABLE stamps ADD COLUMN x REAL NOT NULL DEFAULT 0;
+	ALTER TABLE stamps ADD COLUMN y REAL NOT NULL DEFAULT 0;`,
 }
 
 func migrate(db *sql.DB) error {

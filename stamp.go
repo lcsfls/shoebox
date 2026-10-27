@@ -252,20 +252,22 @@ func burnStamp(ctx context.Context, src, dst string, page int, s stampSpec) erro
 // --- the API ---
 
 type stampRow struct {
-	ID    int64  `json:"id"`
-	Kind  string `json:"kind"`
-	Label string `json:"label"`
-	Date  string `json:"date"`
-	Note  string `json:"note"`
-	Page  int    `json:"page"`
-	By    string `json:"by"`
-	Hash  string `json:"hash"`
-	At    string `json:"created_at"`
+	ID    int64   `json:"id"`
+	Kind  string  `json:"kind"`
+	Label string  `json:"label"`
+	Date  string  `json:"date"`
+	Note  string  `json:"note"`
+	Page  int     `json:"page"`
+	By    string  `json:"by"`
+	Hash  string  `json:"hash"`
+	At    string  `json:"created_at"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
 }
 
 func (a *App) docStamps(id int64) []stampRow {
 	out := []stampRow{}
-	rows, err := a.db.Query(`SELECT s.id, s.kind, s.label, s.date, s.note, s.page, COALESCE(NULLIF(u.name,''), u.username, ''), s.hash, s.created_at
+	rows, err := a.db.Query(`SELECT s.id, s.kind, s.label, s.date, s.note, s.page, COALESCE(NULLIF(u.name,''), u.username, ''), s.hash, s.created_at, s.x, s.y
 		FROM stamps s LEFT JOIN users u ON u.id = s.user_id WHERE s.doc_id = ? ORDER BY s.id`, id)
 	if err != nil {
 		return out
@@ -273,7 +275,7 @@ func (a *App) docStamps(id int64) []stampRow {
 	defer rows.Close()
 	for rows.Next() {
 		var s stampRow
-		rows.Scan(&s.ID, &s.Kind, &s.Label, &s.Date, &s.Note, &s.Page, &s.By, &s.Hash, &s.At)
+		rows.Scan(&s.ID, &s.Kind, &s.Label, &s.Date, &s.Note, &s.Page, &s.By, &s.Hash, &s.At, &s.X, &s.Y)
 		out = append(out, s)
 	}
 	return out
@@ -404,8 +406,8 @@ func (a *App) handleDocStamp(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "Couldn't save the stamped document: "+err.Error())
 		return
 	}
-	a.db.Exec(`INSERT INTO stamps(doc_id, kind, label, date, note, page, user_id, hash, created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-		d.ID, in.Kind, label, in.Date, spec.Note, in.Page, nullID(u.ID), hash, now())
+	a.db.Exec(`INSERT INTO stamps(doc_id, kind, label, date, note, page, user_id, hash, created_at, x, y) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		d.ID, in.Kind, label, in.Date, spec.Note, in.Page, nullID(u.ID), hash, now(), in.X, in.Y)
 	// the date shows with the document's facts, e.g. "Bezahlt: 27.10.2026"
 	if d.Fields == nil {
 		d.Fields = map[string]string{}
