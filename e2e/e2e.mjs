@@ -124,7 +124,7 @@ try {
   await d.locator('mark').first().waitFor();
   await shot(d, '08-archive-search');
   await d.locator('a.doccard').first().click();
-  await d.getByRole('button', { name: 'Edit' }).waitFor();
+  await d.getByRole('button', { name: 'Edit', exact: true }).waitFor();
   await d.waitForTimeout(1200);
   await shot(d, '09-document');
 
@@ -191,7 +191,7 @@ try {
   // mark the date on the page instead of typing it
   const billDoc = (await api(d, '/api/docs?q=' + encodeURIComponent('Stromrechnung Oktober'))).docs?.[0];
   await d.goto(B + '/doc/' + billDoc.id);
-  await d.getByRole('button', { name: 'Edit' }).click();
+  await d.getByRole('button', { name: 'Edit', exact: true }).click();
   await d.getByLabel('Document date', { exact: true }).fill('');
   await d.getByRole('button', { name: 'Mark the date on the page' }).click();
   await d.getByRole('dialog', { name: /Mark the date/ }).waitFor();
@@ -269,7 +269,7 @@ try {
   await shot(p, '22-phone-filters');
   await p.goto(B + '/archive');
   await p.locator('a.doccard').first().click();
-  await p.getByRole('button', { name: 'Edit' }).waitFor();
+  await p.getByRole('button', { name: 'Edit', exact: true }).waitFor();
   await p.waitForTimeout(1200);
   await shot(p, '23-phone-document');
   await p.goto(B + '/settings/ocr');
