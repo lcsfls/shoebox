@@ -104,11 +104,13 @@
     {/if}
 
     {#if !info.installed}
-      <div class="how">
-        <p class="small"><strong>This installation updates another way.</strong></p>
-        <p class="small">Installed with the script: run it again once, then updates work from here.</p>
+      <div class="how" class:urgent={info.newer}>
+        <p><strong>{info.newer ? `To install ${info.latest.tag} from here, set up the updater once.` : 'The updater is not set up on this server yet.'}</strong></p>
+        <p class="small">Shoebox runs without root rights, so a small helper service installs updates for it. The installer sets it up; run it once more, as root. In a Proxmox container, on the Proxmox host:</p>
+        <pre class="code">pct exec &lt;ID&gt; -- bash -c "curl -fsSL https://raw.githubusercontent.com/{info.repo}/main/deploy/install.sh | bash"</pre>
+        <p class="small">On a Debian or Ubuntu server or VM:</p>
         <pre class="code">curl -fsSL https://raw.githubusercontent.com/{info.repo}/main/deploy/install.sh | sudo bash</pre>
-        <p class="small">Docker: <span class="mono">git pull && docker compose up -d --build</span></p>
+        <p class="small">After that, “Update to …” appears here. With Docker, update the container instead: <span class="mono">git pull && docker compose up -d --build</span></p>
       </div>
     {/if}
   </div>
@@ -141,6 +143,7 @@
   .notes { white-space: pre-wrap; font-size: 0.9rem; background: var(--field); border-radius: 10px; padding: 12px; margin-top: 8px; max-height: 360px; overflow: auto; }
   details summary { cursor: pointer; font-weight: 600; }
   .how { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .how.urgent { border: 0; background: var(--warn); color: var(--warn-ink); border-radius: 10px; padding: 12px; }
   .how p { margin: 0; }
   .spin { width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; flex: none; margin-top: 3px; }
   @keyframes spin { to { transform: rotate(360deg); } }

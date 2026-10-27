@@ -24,6 +24,21 @@ say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "Run this as root."
+
+# A saved copy of this script (e.g. /root/shoebox-install.sh in a Proxmox
+# container) may be old: swap in the one from the newest release first.
+SELF="${BASH_SOURCE[0]:-}"
+if [ -z "${SHOEBOX_FRESH:-}" ] && [ -n "$SELF" ] && [ -f "$SELF" ]; then
+  fresh="$(mktemp)"
+  if curl -fsSL "https://github.com/$REPO/releases/latest/download/install.sh" -o "$fresh" 2>/dev/null \
+     && head -n1 "$fresh" | grep -q '^#!' && ! cmp -s "$fresh" "$SELF"; then
+    cp "$fresh" "$SELF"
+    rm -f "$fresh"
+    say "Using the newest installer"
+    SHOEBOX_FRESH=1 exec bash "$SELF" "$@"
+  fi
+  rm -f "$fresh"
+fi
 command -v apt-get >/dev/null || die "This installer is for Debian and Ubuntu."
 command -v systemctl >/dev/null || die "systemd is required."
 
