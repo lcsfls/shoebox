@@ -1,4 +1,5 @@
 <script>
+  import { fileVersion } from '../lib/format.js';
   // Place a stamp ("Eingang", "Bezahlt") on a page and burn it into the PDF.
   import { onMount, untrack } from 'svelte';
   import { fade, scale } from 'svelte/transition';
@@ -109,7 +110,7 @@
   <div class="body">
     <div class="stage">
       <div class="sheet">
-        <img bind:this={img} src="/api/docs/{doc.id}/page/{page}?v={encodeURIComponent(doc.updated_at)}" alt="Page {page}" draggable="false" />
+        <img bind:this={img} src="/api/docs/{doc.id}/page/{page}?v={fileVersion(doc)}" alt="Page {page}" draggable="false" />
         {#if size}
           <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
           <div class="stamp" role="img" tabindex="0" aria-label="The stamp; drag it or move it with the arrow keys"

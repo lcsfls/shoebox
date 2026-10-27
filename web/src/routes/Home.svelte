@@ -7,7 +7,7 @@
   import { motion } from '../lib/motion.js';
   import { tagInfo, colorFor } from '../lib/tags.js';
   import { navigate } from '../lib/router.js';
-  import { formatDate } from '../lib/format.js';
+  import { formatDate, fileVersion } from '../lib/format.js';
   import Icon from '../components/Icon.svelte';
   import Thumb from '../components/Thumb.svelte';
   import Jobs from '../components/Jobs.svelte';
@@ -84,7 +84,7 @@
         <div class="strip">
           {#each data.review as d (d.id)}
             <a class="mini card" href="/review/{d.id}">
-              <Thumb id={d.id} updated={d.updated_at} />
+              <Thumb id={d.id} updated={fileVersion(d)} />
               <span class="mini-title">{d.title || d.sender || 'New document'}</span>
               <span class="muted small">{d.date ? formatDate(d.date) : 'no date'}</span>
             </a>
@@ -103,7 +103,7 @@
           {#each data.recent as d, i (d.id)}
             <li in:fly={motion({ y: 6, duration: 220, delay: Math.min(i, 8) * 30 })}>
               <a href="/doc/{d.id}">
-                <span class="r-thumb"><Thumb id={d.id} updated={d.updated_at} /></span>
+                <span class="r-thumb"><Thumb id={d.id} updated={fileVersion(d)} /></span>
                 <span class="grow">
                   <span class="r-title">{d.title || 'Untitled'}{#if d.sender}{' '}<span class="muted">· {d.sender}</span>{/if}</span>
                   <span class="mono muted path">{d.path}</span>

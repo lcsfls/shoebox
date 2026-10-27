@@ -3,7 +3,7 @@
   import { toast, libraries } from '../lib/stores.js';
   import { tagInfo, colorFor } from '../lib/tags.js';
   import { navigate } from '../lib/router.js';
-  import { amountInput, parseAmount, formatDate, formatSize, formatAmount } from '../lib/format.js';
+  import { amountInput, parseAmount, formatDate, formatSize, formatAmount, fileVersion } from '../lib/format.js';
   import Icon from '../components/Icon.svelte';
   import DocForm from '../components/DocForm.svelte';
   import Pages from '../components/Pages.svelte';
@@ -97,7 +97,7 @@
       <div class="side">
         {#if editing}
           <form class="card box stack" onsubmit={save}>
-            <DocForm bind:form {senders} {tags} idPrefix="dv" docId={doc.id} pages={doc.pages} updated={doc.updated_at} />
+            <DocForm bind:form {senders} {tags} idPrefix="dv" docId={doc.id} pages={doc.pages} updated={fileVersion(doc)} />
             <p class="hint">Saving renames the file to match{doc.source === 'folder' ? ', except for files you put into the archive folder yourself: those keep their name' : ''}.</p>
             <div class="row">
               <button type="button" class="btn" onclick={() => { resetForm(); editing = false; }}>Cancel</button>

@@ -2,7 +2,7 @@
   import { api } from '../lib/api.js';
   import { toast, counts } from '../lib/stores.js';
   import { navigate } from '../lib/router.js';
-  import { amountInput, parseAmount, previewPath, formatDate } from '../lib/format.js';
+  import { amountInput, parseAmount, previewPath, formatDate, fileVersion } from '../lib/format.js';
   import Icon from '../components/Icon.svelte';
   import DocCard from '../components/DocCard.svelte';
   import DocForm from '../components/DocForm.svelte';
@@ -164,7 +164,7 @@
             </div>
           {/if}
           {#if doc.rule}<p class="matched small"><Icon name="check" size={16} />Rule “{doc.rule}” matched</p>{/if}
-          <DocForm bind:form {senders} {tags} idPrefix="rv" docId={doc.id} pages={doc.pages} updated={doc.updated_at} {learned} />
+          <DocForm bind:form {senders} {tags} idPrefix="rv" docId={doc.id} pages={doc.pages} updated={fileVersion(doc)} {learned} />
           <div class="path">
             <span class="muted small">Will be saved as</span>
             <span class="mono">{path}</span>

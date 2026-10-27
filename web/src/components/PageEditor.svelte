@@ -1,4 +1,5 @@
 <script>
+  import { fileVersion } from '../lib/format.js';
   // Change the pages of a document afterwards: order, turn, remove, crop.
   import { untrack } from 'svelte';
   import { flip } from 'svelte/animate';
@@ -21,7 +22,7 @@
   let dragOver = $state(-1);
   let corner = -1;
 
-  const imgUrl = (it) => it.url || `/api/docs/${doc.id}/page/${it.src}?v=${encodeURIComponent(doc.updated_at)}`;
+  const imgUrl = (it) => it.url || `/api/docs/${doc.id}/page/${it.src}?v=${fileVersion(doc)}`;
   let changed = $derived(items.length !== doc.pages || items.some((it, i) => it.src !== i + 1 || it.rotate || it.blob));
 
   function moveBy(i, d) {
@@ -54,7 +55,7 @@
   async function startCrop(i) {
     const it = items[i];
     const im = new Image();
-    im.src = it.url || `/api/docs/${doc.id}/page/${it.src}?w=2400&v=${encodeURIComponent(doc.updated_at)}`;
+    im.src = it.url || `/api/docs/${doc.id}/page/${it.src}?w=2400&v=${fileVersion(doc)}`;
     try { await im.decode(); } catch { return toast('The page could not be loaded.', 'error'); }
     let c = document.createElement('canvas');
     c.width = im.naturalWidth; c.height = im.naturalHeight;

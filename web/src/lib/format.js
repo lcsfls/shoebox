@@ -75,3 +75,6 @@ export function previewPath(pattern, d) {
     return seg.replace(/_+/g, '_').replace(/^[_\-. ]+|[_\-. ]+$/g, '');
   }).filter((s) => s && s !== '..').join('/') + '.pdf';
 }
+
+/** A version of a document's file for image addresses: changes whenever the file does. */
+export const fileVersion = (d) => encodeURIComponent(`${d?.updated_at || ''}-${d?.size || 0}-${d?.pages || 0}`);

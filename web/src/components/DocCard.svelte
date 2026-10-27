@@ -1,11 +1,11 @@
 <script>
   import Thumb from './Thumb.svelte';
-  import { formatDate, formatAmount, snippetParts } from '../lib/format.js';
+  import { formatDate, formatAmount, snippetParts, fileVersion } from '../lib/format.js';
   let { doc, href } = $props();
 </script>
 
 <a class="doccard card" {href}>
-  <Thumb id={doc.id} updated={doc.updated_at} />
+  <Thumb id={doc.id} updated={fileVersion(doc)} />
   <span class="body">
     <span class="title">{doc.title || 'Untitled'}</span>
     <span class="meta">{doc.sender || 'Unknown sender'}{#if doc.date} · {formatDate(doc.date)}{/if}</span>
