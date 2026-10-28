@@ -32,8 +32,6 @@
       <span class="hint">Placeholders: {'{year} {month} {day} {date} {sender} {title} {tags} {id}'}. Slashes make folders.</span>
     </label>
     <p class="small">Example: <span class="mono">{previewPath(s.pattern, sample)}</span></p>
-    <label class="check"><input type="checkbox" bind:checked={s.auto_file} />
-      <span>File automatically when Shoebox is sure<span class="hint">A sorting rule or a known sender matched, and a date and a title were found. Everything else waits in Review.</span></span></label>
     <label class="check"><input type="checkbox" bind:checked={s.learn} />
       <span>Suggest tags and senders from similar documents<span class="hint">A new letter gets the tags that most of the closest filed documents share. They show with a dashed outline in Review.</span></span></label>
     <label class="field">Stamps

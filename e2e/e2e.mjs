@@ -422,7 +422,8 @@ try {
   await p.waitForTimeout(600);
   await shot(p, '24-phone-settings');
 
-  // scanning with the (fake) camera
+  // scanning with the (fake) camera, taking the photos by hand
+  await p.evaluate(() => localStorage.setItem('sb-autoshot', 'off'));
   await p.goto(B + '/scan');
   await p.locator('video').waitFor();
   await p.waitForFunction(() => document.querySelector('video')?.videoWidth > 0);
@@ -444,6 +445,21 @@ try {
   await p.getByRole('button', { name: 'Use page' }).click();
   await until(p, async () => (await p.locator('.strip .pg').count()) === 2, 'two pages');
   await shot(p, '27-phone-scan-pages');
+  // tapping a page shows it; removing happens there
+  await p.getByRole('button', { name: 'Show page 2' }).click();
+  await p.getByRole('dialog', { name: 'Page 2 of 2' }).waitFor();
+  await shot(p, '27b-phone-scan-page-preview');
+  await p.getByRole('button', { name: 'Keep' }).click();
+  await p.getByRole('dialog').waitFor({ state: 'detached' });
+  if ((await p.locator('.strip .pg').count()) !== 2) problems.push('scan: the preview removed a page');
+  await p.getByRole('button', { name: 'Take photo' }).click();
+  await p.getByRole('button', { name: 'Use page' }).click();
+  await until(p, async () => (await p.locator('.strip .pg').count()) === 3, 'three pages');
+  await p.getByRole('button', { name: 'Show page 3' }).click();
+  await p.getByRole('button', { name: 'Remove page' }).click();
+  await p.getByRole('dialog', { name: 'Page 2 of 2' }).waitFor();
+  await p.getByRole('button', { name: 'Back to the camera' }).click();
+  await until(p, async () => (await p.locator('.strip .pg').count()) === 2, 'two pages again');
   await p.getByRole('button', { name: /Done/ }).click();
   await p.getByText(/Scan sent \(2 pages\)/).waitFor();
   await until(p, async () => {

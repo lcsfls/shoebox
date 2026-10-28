@@ -84,7 +84,7 @@
 
 <div class="card sec">
   <h2>Sorting rules</h2>
-  <p class="muted">When a document's text matches, Shoebox sets the sender, adds tags or a title. With a matching rule and a date, documents are filed without review. Rules from Paperless are imported with it.</p>
+  <p class="muted">When a document's text matches, Shoebox sets the sender, adds tags or a title. Every document still waits in Review before it is filed. Rules from Paperless are imported with it.</p>
   <div class="actions"><button class="btn primary" onclick={newRule}><Icon name="plus" />New rule</button></div>
 
   {#if edit}

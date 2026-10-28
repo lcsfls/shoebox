@@ -197,6 +197,54 @@ export function sharpness(rgba, w, h) {
   return sq / n - m * m;
 }
 
+/** How far the corners of two quads lie apart (the largest step, 0..1). */
+export function quadShift(a, b) {
+  if (!a || !b) return 1;
+  let m = 0;
+  for (let i = 0; i < 4; i++) m = Math.max(m, Math.abs(a[i].x - b[i].x), Math.abs(a[i].y - b[i].y));
+  return m;
+}
+
+/** Mean difference of two gray pictures of the same size (0–255). */
+export function grayDiff(a, b) {
+  if (!a || !b || a.length !== b.length) return 255;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d += Math.abs(a[i] - b[i]);
+  return d / a.length;
+}
+
+/**
+ * Decides, frame by frame, when the camera may take the photo by itself:
+ * a page is found, its corners stay put for a moment (the hand is still)
+ * and the picture is about as sharp as the sharpest one seen lately (the
+ * focus has settled). After a photo it waits until the scene changes
+ * (the next page is laid down), so the same page isn't taken twice.
+ *
+ * step() returns 'none' (no page), 'taken' (this page is done, waiting
+ * for the next), 'steady' (page, not yet ready), 'ready' (green: sharp
+ * and still) or 'shoot'.
+ */
+export function autoShot({ steadyFrames = 3, readyFrames = 2, tolerance = 0.02, sharpRatio = 0.7 } = {}) {
+  let prev = null, still = 0, ready = 0, peak = 0, armed = true, taken = null;
+  return {
+    step(quad, sharp, gray) {
+      peak = Math.max(sharp, peak * 0.97);
+      if (!armed && (!quad || grayDiff(gray, taken) > 14)) armed = true;
+      if (!quad) { prev = null; still = ready = 0; return 'none'; }
+      still = quadShift(quad, prev) < tolerance ? still + 1 : 0;
+      prev = quad;
+      if (!armed) { ready = 0; return 'taken'; }
+      const ok = still >= steadyFrames && sharp >= peak * sharpRatio && sharp > 0;
+      ready = ok ? ready + 1 : 0;
+      if (ready > readyFrames) return 'shoot';
+      return ready ? 'ready' : 'steady';
+    },
+    // after a photo (taken by hand or by itself)
+    taken(gray) { armed = false; taken = gray; still = ready = 0; },
+    reset(again = false) { prev = null; still = ready = 0; if (again) armed = true; },
+  };
+}
+
 /**
  * Evens out the light on a page: the paper's brightness is estimated in
  * blocks (a high percentile, so text doesn't count), smoothed, and every

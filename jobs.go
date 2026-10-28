@@ -17,7 +17,7 @@ import (
 )
 
 // A Job turns incoming files into a document: OCR, guess the facts,
-// then either file it right away or put it in the review inbox.
+// then put it in the review inbox.
 type Job struct {
 	ID      int64     `json:"id"`
 	Kind    string    `json:"kind"` // scan | upload | folder
@@ -270,14 +270,7 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 		return 0, err
 	}
 	a.db.Exec(`UPDATE docs SET path = ? WHERE id = ?`, name, id)
-	// filed without asking only when it's complete: sure of the sender (a
-	// rule or a known name), a date and a title; anything else waits in Review
-	if s.AutoFile && f.Matched && f.Date != "" && strings.TrimSpace(title) != "" {
-		step("Filing")
-		if err := a.fileDoc(ctx, id); err != nil {
-			log.Printf("auto-filing %d: %v (left in the inbox)", id, err)
-		}
-	}
+	// every new document waits in Review: it's filed only once someone looked at it
 	return id, nil
 }
 

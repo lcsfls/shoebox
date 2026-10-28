@@ -3,7 +3,7 @@
   import { upload } from '../lib/api.js';
   import { toast, counts, libraries, currentLibrary } from '../lib/stores.js';
   import { navigate } from '../lib/router.js';
-  import { detectQuad, fullQuad, warp, enhance, outputSize, sharpness } from '../lib/scan.js';
+  import { detectQuad, fullQuad, warp, enhance, outputSize, sharpness, toGray, autoShot } from '../lib/scan.js';
   import Icon from '../components/Icon.svelte';
 
   const MAX_SIDE = 3400; // photos are scaled down to this before straightening
@@ -28,6 +28,11 @@
   let sending = $state(0);
   let torchAvailable = $state(false); // the phone's light, where the browser allows it (Chrome on Android)
   let torch = $state(false);
+  let videoReady = $state(false); // the shutter waits for the picture (the video is reattached after each page)
+  let auto = $state(readAuto()); // take the photo by itself once the page is sharp and still
+  let look = $state('none'); // none | taken | steady | ready (what the live outline shows)
+  let preview = $state(-1); // the scanned page shown large, -1 for none
+  const shooter = autoShot();
 
   const canCamera = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && window.isSecureContext;
 
@@ -35,6 +40,10 @@
     try { return localStorage.getItem('sb-filter') || 'doc'; } catch { return 'doc'; }
   }
   $effect(() => { try { localStorage.setItem('sb-filter', filter); } catch {} });
+  function readAuto() {
+    try { return localStorage.getItem('sb-autoshot') !== 'off'; } catch { return true; }
+  }
+  $effect(() => { try { localStorage.setItem('sb-autoshot', auto ? 'on' : 'off'); } catch {} });
 
   onMount(() => {
     if (canCamera) startCamera();
@@ -66,14 +75,18 @@
   }
 
   // (re)attach the stream: the video element is recreated after cropping
-  async function resumeCamera() {
+  // again: the same page is taken once more (Retake), so it may go by itself
+  async function resumeCamera(again = false) {
     shot = null;
     mode = 'camera';
+    shooter.reset(again);
+    videoReady = false;
     await tick();
     if (video && stream) {
       video.srcObject = stream;
       await video.play().catch(() => {});
     }
+    videoReady = !!video?.videoWidth;
     fitFrame();
     detectLoop();
   }
@@ -104,6 +117,8 @@
   }
 
   const small = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+  const probe = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+  let lastGray = null;
   function detectLoop() {
     clearTimeout(loop);
     if (mode !== 'camera' || !video?.videoWidth) { loop = setTimeout(detectLoop, 300); return; }
@@ -111,8 +126,33 @@
     small.width = w; small.height = h;
     const ctx = small.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(video, 0, 0, w, h);
-    liveQuad = detectQuad(ctx.getImageData(0, 0, w, h).data, w, h);
+    const px = ctx.getImageData(0, 0, w, h).data;
+    liveQuad = detectQuad(px, w, h);
+    lastGray = toGray(px, w, h);
+    if (preview >= 0) shooter.reset(); // start over once the page view is closed
+    look = shooter.step(liveQuad, liveQuad ? pageSharpness(liveQuad) : 0, lastGray);
+    if (look === 'shoot') {
+      look = 'ready';
+      if (auto && preview < 0 && !capturing && !sending) { capture(); return; }
+    }
     loop = setTimeout(detectLoop, 280);
+  }
+
+  // sharpness of the page itself (not the table around it), in a finer
+  // picture than the one used to find the page, so small print counts
+  function pageSharpness(q) {
+    const xs = q.map((p) => p.x), ys = q.map((p) => p.y);
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const x0 = Math.min(...xs) * vw, y0 = Math.min(...ys) * vh;
+    const bw = (Math.max(...xs) - Math.min(...xs)) * vw, bh = (Math.max(...ys) - Math.min(...ys)) * vh;
+    // the middle of the page: its edges are the table's, not the print's
+    const sx = x0 + bw * 0.2, sy = y0 + bh * 0.2, sw = bw * 0.6, sh = bh * 0.6;
+    if (sw < 8 || sh < 8) return 0;
+    const pw = Math.min(400, Math.round(sw)), ph = Math.max(8, Math.round((pw * sh) / sw));
+    probe.width = pw; probe.height = ph;
+    const pctx = probe.getContext('2d', { willReadFrequently: true });
+    pctx.drawImage(video, sx, sy, sw, sh, 0, 0, pw, ph);
+    return sharpness(pctx.getImageData(0, 0, pw, ph).data, pw, ph);
   }
 
   let capturing = $state(false);
@@ -123,13 +163,16 @@
   async function capture() {
     if (!video?.videoWidth || capturing) return;
     capturing = true;
+    clearTimeout(loop);
     const quad = liveQuad;
+    shooter.taken(lastGray);
     try {
       const photo = await takePhoto();
       if (photo) { openCrop(photo, autoQuad(photo)); return; } // the photo may have another shape than the video
       openCrop(await sharpestFrame(), quad);
     } finally {
       capturing = false;
+      if (mode === 'camera') detectLoop();
     }
   }
 
@@ -273,6 +316,14 @@
   function removePage(i) {
     URL.revokeObjectURL(pages[i].url);
     pages = pages.filter((_, j) => j !== i);
+    preview = pages.length ? Math.min(i, pages.length - 1) : -1;
+  }
+
+  function onPreviewKey(e) {
+    if (preview < 0) return;
+    if (e.key === 'Escape') preview = -1;
+    else if (e.key === 'ArrowLeft' && preview > 0) preview--;
+    else if (e.key === 'ArrowRight' && preview < pages.length - 1) preview++;
   }
 
   async function done() {
@@ -294,6 +345,7 @@
   }
 
   function close() {
+    if (preview >= 0) { preview = -1; return; }
     if (pages.length && !confirm('Discard the scanned pages?')) return;
     stopCamera();
     navigate('/');
@@ -302,6 +354,8 @@
   let polygon = $derived(liveQuad ? liveQuad.map((p) => `${p.x * frame.w},${p.y * frame.h}`).join(' ') : '');
   let cropPolygon = $derived(shot ? shot.quad.map((p) => `${p.x * cropView.w},${p.y * cropView.h}`).join(' ') : '');
 </script>
+
+<svelte:window onkeydown={onPreviewKey} />
 
 <div class="scan">
   <header class="bar">
@@ -317,12 +371,21 @@
   {#if mode === 'camera' || (mode === 'busy' && !shot)}
     <div class="viewport" bind:this={viewport}>
       <div class="frame" style="width:{frame.w}px;height:{frame.h}px">
-        <video bind:this={video} playsinline muted onloadedmetadata={fitFrame}></video>
+        <video bind:this={video} playsinline muted onloadedmetadata={() => { fitFrame(); videoReady = true; }}></video>
         {#if polygon}
-          <svg class="overlay" viewBox="0 0 {frame.w} {frame.h}" aria-hidden="true"><polygon points={polygon} /></svg>
+          <svg class="overlay" class:ready={look === 'ready'} viewBox="0 0 {frame.w} {frame.h}" aria-hidden="true"><polygon points={polygon} /></svg>
         {/if}
       </div>
-      <p class="hint-pill">{liveQuad ? 'Page found. Hold still and take the photo.' : 'Point the camera at the page, on a darker surface.'}</p>
+      {#if mode === 'camera'}
+        <button class="auto-chip" class:on={auto} onclick={() => (auto = !auto)} aria-pressed={auto} aria-label="Take the photo automatically">
+          <span class="dot"></span>Auto
+        </button>
+      {/if}
+      <p class="hint-pill" class:ready={look === 'ready'}>{capturing ? 'Taking the photo …'
+        : !liveQuad ? 'Point the camera at the page, on a darker surface.'
+        : look === 'taken' && auto ? 'Got it. Lay down the next page.'
+        : look === 'ready' ? (auto ? 'Sharp. Hold still …' : 'Sharp. Take the photo now.')
+        : auto ? 'Page found. Hold still.' : 'Page found. Hold still and take the photo.'}</p>
     </div>
   {:else if mode === 'crop' || (mode === 'busy' && shot)}
     <div class="viewport" bind:this={cropBox}>
@@ -357,17 +420,36 @@
   {#if pages.length && mode !== 'crop'}
     <div class="strip" aria-label="Scanned pages">
       {#each pages as p, i (p.url)}
-        <button class="pg" onclick={() => removePage(i)} aria-label="Remove page {i + 1}">
+        <button class="pg" onclick={() => (preview = i)} aria-label="Show page {i + 1}">
           <img src={p.url} alt="" /><span class="num">{i + 1}</span>
         </button>
       {/each}
-      <span class="muted strip-hint">Tap a page to remove it</span>
+      <span class="muted strip-hint">Tap a page to look at it</span>
+    </div>
+  {/if}
+
+  {#if preview >= 0 && pages[preview]}
+    <div class="preview" role="dialog" aria-modal="true" aria-label="Page {preview + 1} of {pages.length}">
+      <div class="preview-bar">
+        <button class="round" onclick={() => (preview = -1)} aria-label="Back to the camera"><Icon name="back" /></button>
+        <span class="title">Page {preview + 1} of {pages.length}</span>
+        <span class="round placeholder" aria-hidden="true"></span>
+      </div>
+      <div class="preview-page">
+        <img src={pages[preview].url} alt="Scanned page {preview + 1}" />
+        {#if preview > 0}<button class="round nav prev" onclick={() => preview--} aria-label="Previous page"><Icon name="back" /></button>{/if}
+        {#if preview < pages.length - 1}<button class="round nav next" onclick={() => preview++} aria-label="Next page"><Icon name="back" /></button>{/if}
+      </div>
+      <div class="preview-actions">
+        <button class="btn dark" onclick={() => removePage(preview)}><Icon name="trash" />Remove page</button>
+        <button class="btn primary" onclick={() => (preview = -1)}>Keep</button>
+      </div>
     </div>
   {/if}
 
   <footer class="controls">
     {#if mode === 'crop'}
-      <button class="btn dark" onclick={() => (liveCamera ? resumeCamera() : ((shot = null), (mode = 'start')))}>Retake</button>
+      <button class="btn dark" onclick={() => (liveCamera ? resumeCamera(true) : ((shot = null), (mode = 'start')))}>Retake</button>
       <button class="round" onclick={rotate} aria-label="Rotate"><Icon name="rotate" /></button>
       <div class="seg" role="radiogroup" aria-label="Look">
         {#each [['doc', 'Document'], ['gray', 'Gray'], ['color', 'Color']] as [k, l]}
@@ -378,7 +460,7 @@
     {:else}
       <button class="btn dark" onclick={() => (liveCamera ? galleryInput : fileInput).click()}>{liveCamera ? 'Gallery' : 'Photo'}</button>
       {#if mode === 'camera'}
-        <button class="shutter" onclick={capture} disabled={capturing} aria-busy={capturing} aria-label="Take photo"><span></span></button>
+        <button class="shutter" onclick={capture} disabled={capturing || !videoReady} aria-busy={capturing} aria-label="Take photo"><span></span></button>
       {:else}
         <span class="shutter-space"></span>
       {/if}
@@ -401,10 +483,24 @@
   .frame { position: relative; }
   video, .frame img { width: 100%; height: 100%; display: block; object-fit: fill; user-select: none; -webkit-user-drag: none; }
   .overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .overlay polygon { fill: rgb(242 179 61 / 0.14); stroke: #F2B33D; stroke-width: 3; stroke-linejoin: round; }
+  .overlay polygon { fill: rgb(242 179 61 / 0.14); stroke: #F2B33D; stroke-width: 3; stroke-linejoin: round; transition: fill 0.15s, stroke 0.15s; }
+  .overlay.ready polygon { fill: rgb(76 187 108 / 0.2); stroke: #4CBB6C; stroke-width: 4; }
   .edit { touch-action: none; }
   .handle { fill: rgb(242 179 61 / 0.25); stroke: #F2B33D; stroke-width: 3; cursor: grab; }
   .hint-pill { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: rgb(20 17 13 / 0.75); padding: 8px 14px; border-radius: 999px; font-size: 0.88rem; white-space: nowrap; max-width: 92%; overflow: hidden; text-overflow: ellipsis; }
+  .hint-pill.ready { background: rgb(36 110 58 / 0.85); }
+  .auto-chip { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 14px; border: 0; border-radius: 999px; background: rgb(20 17 13 / 0.7); color: #fff; font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+  .auto-chip .dot { width: 9px; height: 9px; border-radius: 50%; background: rgb(255 255 255 / 0.35); }
+  .auto-chip.on .dot { background: #4CBB6C; }
+  .preview { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: #14110D; }
+  .preview-bar { display: flex; align-items: center; justify-content: space-between; padding: max(12px, env(safe-area-inset-top)) 14px 8px; }
+  .preview-page { position: relative; flex: 1; min-height: 0; margin: 0 10px; display: grid; place-items: center; }
+  .preview-page img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; background: #fff; }
+  .nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgb(20 17 13 / 0.7); }
+  .prev { left: 6px; }
+  .next { right: 6px; }
+  .next :global(svg) { transform: scaleX(-1); }
+  .preview-actions { display: flex; justify-content: space-between; gap: 10px; padding: 14px 16px max(18px, calc(env(safe-area-inset-bottom) + 10px)); }
   .fallback { padding: 24px; }
   .fallback-box { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; max-width: 360px; color: #E3DACA; }
   .btn.big { width: 100%; min-height: 52px; }
