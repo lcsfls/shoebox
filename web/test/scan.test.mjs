@@ -131,3 +131,32 @@ test('flatten keeps a large dark logo dark', async () => {
   assert.ok(out[150 * w + 150] < 80, `logo became ${out[150 * w + 150]}`);
   assert.ok(out[50 * w + 50] > 230, 'paper is white');
 });
+
+test('autoShot: waits for a still, sharp page and not twice for the same one', async () => {
+  const { autoShot } = await import('../src/lib/scan.js');
+  const q = [{ x: 0.1, y: 0.1 }, { x: 0.9, y: 0.1 }, { x: 0.9, y: 0.9 }, { x: 0.1, y: 0.9 }];
+  const moved = (d) => q.map((p) => ({ x: p.x + d, y: p.y }));
+  const page = new Uint8Array(100).fill(200), table = new Uint8Array(100).fill(40);
+  const a = autoShot();
+  const run = (n, quad, sharp, gray) => { let r; for (let i = 0; i < n; i++) r = a.step(quad, sharp, gray); return r; };
+
+  assert.equal(a.step(null, 0, table), 'none');
+  // a shaking hand: the corners keep moving
+  for (let i = 0; i < 10; i++) assert.notEqual(a.step(moved(i * 0.05), 500, page), 'shoot');
+  // still, but the focus is still hunting (far below the sharpest seen)
+  assert.notEqual(run(10, q, 100, page), 'shoot');
+  // still and sharp: green first, then the photo
+  const seen = [];
+  for (let i = 0; i < 8 && seen.at(-1) !== 'shoot'; i++) seen.push(a.step(q, 480, page));
+  assert.ok(seen.includes('ready') && seen.at(-1) === 'shoot', seen.join());
+  a.taken(page);
+  // the same page lies there: no second photo
+  assert.equal(run(20, q, 480, page), 'taken');
+  // the page is taken away and the next one laid down
+  a.step(null, 0, table);
+  assert.equal(run(10, q, 480, page), 'shoot');
+  // Retake: the same page again
+  a.taken(page);
+  a.reset(true);
+  assert.equal(run(10, q, 480, page), 'shoot');
+});
