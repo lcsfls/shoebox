@@ -379,6 +379,13 @@ try {
   await d.getByText('Moved to “Privat”').waitFor();
   const movedDoc = (await api(d, `/api/docs/${movedID}`)).doc;
   if (movedDoc?.library_id !== 2 || !fs.existsSync(path.join(path.dirname(ARCHIVE), 'private', movedDoc.path))) problems.push(`drag to library: ${JSON.stringify(movedDoc)}`);
+  // and back without dragging (as on a phone): "Move to …" on the document
+  await d.goto(B + `/doc/${movedID}`);
+  await d.getByRole('button', { name: 'Move to …' }).click();
+  await d.getByRole('button', { name: 'Move to Shared' }).click();
+  await d.getByText('Moved to “Shared”').waitFor();
+  const backDoc = (await api(d, `/api/docs/${movedID}`)).doc;
+  if (backDoc?.library_id !== 1 || !fs.existsSync(path.join(ARCHIVE, 'shared', backDoc.path))) problems.push(`move to library: ${JSON.stringify(backDoc)}`);
   log('libraries ok');
 
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {

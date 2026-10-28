@@ -9,6 +9,7 @@
   import Pages from '../components/Pages.svelte';
   import Jobs from '../components/Jobs.svelte';
   import Stamps from '../components/Stamps.svelte';
+  import MoveTo from '../components/MoveTo.svelte';
   import { stampConfig } from '../lib/stamps.js';
 
   let { id = 0 } = $props();
@@ -135,10 +136,10 @@
     {#if list && !list.length}
       <div class="empty card">
         <Icon name="check" size={28} />
-        <p><strong>All done.</strong> New scans and uploads that Shoebox couldn’t sort on its own show up here.</p>
+        <p><strong>All done.</strong> New scans, uploads and imports show up here before they are filed.</p>
       </div>
     {:else if list}
-      <p class="muted lead">Check what Shoebox recognized, then file. Documents a sorting rule recognizes are filed without asking.</p>
+      <p class="muted lead">Check what Shoebox recognized, then file.</p>
       <div class="grid">
         {#each list as d (d.id)}<DocCard doc={d} href="/review/{d.id}" />{/each}
       </div>
@@ -170,6 +171,9 @@
             <span class="mono">{path}</span>
           </div>
           <Stamps {doc} {stamps} config={stampCfg} onchange={(r) => { doc = r.doc; stamps = r.stamps; }} />
+          <!-- what was typed goes along; it waits in that library's Review -->
+          <MoveTo {doc} before={() => api.patch(`/api/docs/${id}`, patch())}
+            onmoved={() => { counts.update((c) => ({ ...c, inbox: Math.max(0, c.inbox - 1) })); navigate(nextId ? `/review/${nextId}` : '/review', true); }} />
           <div class="buttons">
             <button type="button" class="btn ghost danger iconbtn" onclick={remove} aria-label="Delete"><Icon name="trash" /></button>
             <button type="button" class="btn" onclick={saveLater} disabled={busy}>Later</button>

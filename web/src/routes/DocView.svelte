@@ -9,6 +9,7 @@
   import Pages from '../components/Pages.svelte';
   import PageEditor from '../components/PageEditor.svelte';
   import Stamps from '../components/Stamps.svelte';
+  import MoveTo from '../components/MoveTo.svelte';
   import { stampConfig } from '../lib/stamps.js';
 
   let { id } = $props();
@@ -131,6 +132,7 @@
               <button class="btn small ghost danger" onclick={remove}><Icon name="trash" />Delete</button>
             {/if}
           </div>
+          {#if mayEdit}<MoveTo {doc} onmoved={() => load()} />{/if}
           {#if mayEdit || stamps.length}
             <Stamps {doc} {stamps} config={stampCfg} editable={mayEdit} onchange={() => load()} />
           {/if}
