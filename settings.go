@@ -20,7 +20,6 @@ type AISettings struct {
 
 type Settings struct {
 	Pattern      string     `json:"pattern"`       // file name pattern inside the archive
-	AutoFile     bool       `json:"auto_file"`     // file without review when a rule matched and a date was found
 	Languages    string     `json:"languages"`     // Tesseract languages, e.g. deu+eng
 	Workers      int        `json:"workers"`       // documents processed at the same time
 	WatchMinutes int        `json:"watch_minutes"` // look for new files in the archive every N minutes, 0 = off
@@ -41,7 +40,6 @@ type Settings struct {
 func defaultSettings() Settings {
 	return Settings{
 		Pattern:      "{year}/{month}/{date}_{sender}_{title}",
-		AutoFile:     true,
 		Languages:    "deu+eng",
 		Workers:      1,
 		WatchMinutes: 5,

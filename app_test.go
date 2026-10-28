@@ -175,16 +175,13 @@ func TestScanReviewFileSearch(t *testing.T) {
 		t.Error("old file still there")
 	}
 
-	// a second scan of the same letter with a rule files itself
+	// a second scan of the same letter with a rule: sorted, but still waits in Review
 	a.db.Exec(`INSERT INTO rules(name, kind, pattern, nocase, sender, tags, title, position, enabled)
 		VALUES('Stadtwerke', 'any', 'stadtwerke', 1, 'Stadtwerke Musterstadt', '["Strom"]', 'Stromrechnung', 0, 1)`)
 	j2 := waitJob(t, a, scanJob(t, a, 2))
 	d2, _ := a.getDoc(j2.DocID)
-	if d2 == nil || d2.Status != "filed" || d2.Sender != "Stadtwerke Musterstadt" || d2.Rule != "Stadtwerke" {
-		t.Fatalf("auto filing: %+v (%s)", d2, j2.Error)
-	}
-	if !strings.HasPrefix(d2.Path, "2026/10/") {
-		t.Errorf("auto filed to %s", d2.Path)
+	if d2 == nil || d2.Status != "inbox" || d2.Sender != "Stadtwerke Musterstadt" || d2.Rule != "Stadtwerke" {
+		t.Fatalf("rule match: %+v (%s)", d2, j2.Error)
 	}
 }
 
