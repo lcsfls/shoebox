@@ -11,6 +11,7 @@
   import Stamps from '../components/Stamps.svelte';
   import MoveTo from '../components/MoveTo.svelte';
   import { stampConfig } from '../lib/stamps.js';
+  import { recall, more } from '../lib/browse.js';
 
   let { id } = $props();
   let doc = $state(null);
@@ -30,7 +31,7 @@
 
   async function load() {
     try {
-      const [d, s, t, st] = await Promise.all([api.get(`/api/docs/${id}`), api.get('/api/senders'), api.get('/api/tags'), api.get('/api/settings').catch(() => null)]);
+      const [d, s, t, st] = await Promise.all([api.get(`/api/docs/${id}`), api.get('/api/senders'), api.get('/api/tags?suggest=1'), api.get('/api/settings').catch(() => null)]);
       doc = d.doc;
       text = d.text;
       stamps = d.stamps || [];
@@ -45,7 +46,40 @@
   function resetForm() {
     form = { title: doc.title, date: doc.date, sender: doc.sender, amount: amountInput(doc.amount_cents), tags: [...doc.tags], notes: doc.notes };
   }
-  $effect(() => { id; load(); });
+  $effect(() => { id; editing = false; load(); });
+
+  // ← / →: the neighbours in the archive list this document was opened from
+  let browse = $state(recall());
+  let pos = $derived(browse ? browse.ids.indexOf(Number(id)) : -1);
+  let prevId = $derived(pos > 0 ? browse.ids[pos - 1] : 0);
+  let nextId = $derived(pos >= 0 && pos < browse.ids.length - 1 ? browse.ids[pos + 1] : 0);
+  $effect(() => {
+    // at the end of what the archive loaded: fetch the next page of the list
+    if (pos >= 0 && pos === browse.ids.length - 1 && browse.ids.length < browse.total) more(browse).then((b) => (browse = b)).catch(() => {});
+  });
+  // leaving the form: ask only when something was changed
+  function mayLeave() {
+    if (!editing || !doc) return true;
+    const was = { title: doc.title, date: doc.date, sender: doc.sender, amount: amountInput(doc.amount_cents), tags: [...doc.tags], notes: doc.notes };
+    return JSON.stringify(form) === JSON.stringify(was) || confirm('Discard the changes?');
+  }
+  function go(to) {
+    if (to && mayLeave()) navigate(`/doc/${to}`, true);
+  }
+  function cancelEdit() {
+    if (mayLeave()) { resetForm(); editing = false; }
+  }
+  function onKey(e) {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.target.closest?.('input, textarea, select, [contenteditable], [role="dialog"]') || document.querySelector('[role="dialog"]')) {
+      if (e.key === 'Escape' && editing && !document.querySelector('[role="dialog"]')) cancelEdit();
+      return;
+    }
+    if (e.key === 'ArrowLeft' && prevId) { e.preventDefault(); go(prevId); }
+    else if (e.key === 'ArrowRight' && nextId) { e.preventDefault(); go(nextId); }
+    else if (e.key === 'e' && mayEdit && !editing) { e.preventDefault(); editing = true; }
+    else if (e.key === 'Escape' && editing) cancelEdit();
+  }
 
   async function save(e) {
     e.preventDefault();
@@ -83,10 +117,19 @@
   <PageEditor {doc} onclose={() => (editPages = false)} onsaved={(d) => { editPages = false; load(); }} />
 {/if}
 
+<svelte:window onkeydown={onKey} />
+
 <div class="page">
   <div class="page-head">
     <button class="btn ghost iconbtn" onclick={() => (history.length > 1 ? history.back() : navigate('/archive'))} aria-label="Back"><Icon name="back" /></button>
     <h1 class="title">{doc ? doc.title || 'Untitled' : ''}</h1>
+    {#if pos >= 0 && browse.total > 1}
+      <div class="nav">
+        <span class="muted small">{pos + 1} of {browse.total}</span>
+        <button type="button" class="btn small iconbtn" onclick={() => go(prevId)} disabled={!prevId} aria-label="Previous document" title="Previous (←)"><Icon name="back" /></button>
+        <button type="button" class="btn small iconbtn next" onclick={() => go(nextId)} disabled={!nextId} aria-label="Next document" title="Next (→)"><Icon name="back" /></button>
+      </div>
+    {/if}
   </div>
   {#if error}<p class="error">{error}</p>{/if}
   {#if doc}
@@ -116,7 +159,7 @@
               {#if doc.notes}<dt>Notes</dt><dd class="pre">{doc.notes}</dd>{/if}
             </dl>
             <div class="row">
-              {#if mayEdit}<button class="btn" onclick={() => (editing = true)}><Icon name="edit" />Edit</button>{/if}
+              {#if mayEdit}<button class="btn" onclick={() => (editing = true)} title="Edit (E)"><Icon name="edit" />Edit</button>{/if}
               <a class="btn" href="/api/docs/{doc.id}/pdf?dl=1" download><Icon name="download" />Download</a>
               <a class="btn" href="/api/docs/{doc.id}/pdf" target="_blank" rel="noopener"><Icon name="file" />PDF</a>
             </div>
@@ -147,6 +190,8 @@
 
 <style>
   .title { overflow: hidden; text-overflow: ellipsis; }
+  .page-head .nav { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
+  .nav .next :global(svg) { transform: scaleX(-1); }
   .layout { display: grid; gap: 16px; }
   .side { display: flex; flex-direction: column; gap: 12px; }
   .box { padding: 16px; }

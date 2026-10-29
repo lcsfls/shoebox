@@ -9,6 +9,7 @@
   import { flip } from 'svelte/animate';
   import { tagInfo, colorFor } from '../lib/tags.js';
   import { motion } from '../lib/motion.js';
+  import { remember } from '../lib/browse.js';
 
   let tree = $state([]);
   let tags = $state([]);
@@ -63,6 +64,9 @@
       if (my !== seq) return;
       docs = append ? [...docs, ...r.docs] : r.docs;
       total = r.total;
+      p.delete('limit');
+      p.delete('offset');
+      remember(p.toString(), docs.map((d) => d.id), total); // for ← / → on a document
       error = '';
     } catch (e) {
       if (my === seq) error = e.message;
@@ -71,6 +75,14 @@
     }
   }
   $effect(() => { f; load(); });
+
+  // "/" jumps into the search field
+  function onKey(e) {
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.closest?.('input, textarea, select, [contenteditable]') || document.querySelector('[role="dialog"]')) return;
+    e.preventDefault();
+    document.getElementById('arch-q')?.focus();
+  }
 
   let typing;
   function onType() {
@@ -91,6 +103,8 @@
     ].filter(Boolean),
   );
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="page archive">
   <aside class="filters" class:open={showFilters}>
@@ -150,7 +164,7 @@
       <form class="search" role="search" onsubmit={(e) => { e.preventDefault(); setQuery({ q: qInput.trim() }); }}>
         <Icon name="search" />
         <label class="sr-only" for="arch-q">Search</label>
-        <input id="arch-q" type="search" bind:value={qInput} oninput={onType} placeholder="Search everything …" enterkeyhint="search" />
+        <input id="arch-q" type="search" bind:value={qInput} oninput={onType} placeholder="Search everything …" title="Search (/)" enterkeyhint="search" />
       </form>
       <button class="btn mobile-only" onclick={() => (showFilters = true)}><Icon name="folder" />Filter</button>
       <label class="sr-only" for="arch-sort">Sort</label>

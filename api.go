@@ -488,6 +488,19 @@ func (a *App) handleTags(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if r.URL.Query().Get("suggest") != "" {
+		// for typing tags: the most used first, in a Home also Family's (see sortingLibs)
+		libs := a.sortingLibs(lib)
+		in := strings.TrimSuffix(strings.Repeat("?,", len(libs)), ",")
+		args := make([]any, len(libs))
+		for i, l := range libs {
+			args[i] = l
+		}
+		a.listNamed(w, `SELECT min(t.id), t.name, min(t.color), sum((SELECT count(*) FROM doc_tags dt JOIN docs d ON d.id = dt.doc_id
+			WHERE dt.tag_id = t.id AND d.status = 'filed')) AS n FROM tags t WHERE t.library_id IN (`+in+`)
+			GROUP BY t.name COLLATE NOCASE ORDER BY n DESC, t.name COLLATE NOCASE`, args...)
+		return
+	}
 	a.listNamed(w, `SELECT t.id, t.name, t.color, (SELECT count(*) FROM doc_tags dt JOIN docs d ON d.id = dt.doc_id
 		WHERE dt.tag_id = t.id AND d.status = 'filed') FROM tags t WHERE t.library_id = ? ORDER BY t.name COLLATE NOCASE`, lib)
 }

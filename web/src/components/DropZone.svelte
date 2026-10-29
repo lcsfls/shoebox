@@ -9,10 +9,13 @@
   import Icon from './Icon.svelte';
 
   let depth = 0;
+  // A drag that starts on the page (a document card into another library)
+  // is no upload, even though the browser lists the card's picture as a file.
+  let inside = false;
   const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
 
   function enter(e) {
-    if (!$canAdd || !hasFiles(e) || document.querySelector('[role="dialog"]')) return;
+    if (inside || !$canAdd || !hasFiles(e) || document.querySelector('[role="dialog"]')) return;
     e.preventDefault();
     depth++;
     dragging.set(true);
@@ -34,7 +37,7 @@
   }
 </script>
 
-<svelte:window ondragenter={enter} ondragover={over} ondragleave={leave} ondrop={drop} />
+<svelte:window ondragstart={() => (inside = true)} ondragend={() => (inside = false)} ondragenter={enter} ondragover={over} ondragleave={leave} ondrop={drop} />
 
 {#if $dragging}
   <div class="drop" transition:fade={motion({ duration: 120 })} aria-hidden="true">

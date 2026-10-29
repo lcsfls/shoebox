@@ -387,6 +387,44 @@ try {
   if (backDoc?.library_id !== 1 || !fs.existsSync(path.join(ARCHIVE, 'family', backDoc.path))) problems.push(`move to library: ${JSON.stringify(backDoc)}`);
   log('libraries ok');
 
+  // dragging a card is no upload, even though the browser lists its picture as a file
+  await d.goto(B + '/archive');
+  await d.locator('a.doccard').nth(1).waitFor();
+  await d.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['x'], 'thumb.jpg', { type: 'image/jpeg' }));
+    document.querySelector('a.doccard').dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+    document.body.dispatchEvent(new DragEvent('dragenter', { bubbles: true, dataTransfer: dt }));
+  });
+  await d.waitForTimeout(300);
+  if (await d.getByText('Drop to upload').count()) problems.push('drag: dragging a card opened the upload drop zone');
+  await d.evaluate(() => document.querySelector('a.doccard').dispatchEvent(new DragEvent('dragend', { bubbles: true })));
+  // ← / → go through the archive list in its order; E edits; tags complete with Tab
+  const hrefs = await d.locator('a.doccard').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+  await d.locator('a.doccard').first().click();
+  await d.getByRole('button', { name: 'Next document' }).waitFor();
+  await d.keyboard.press('ArrowRight');
+  await d.waitForURL((u) => u.pathname === hrefs[1]);
+  await d.keyboard.press('ArrowLeft');
+  await d.waitForURL((u) => u.pathname === hrefs[0]);
+  await d.waitForTimeout(500);
+  await d.keyboard.press('e');
+  await d.locator('#dv-tags').focus();
+  await d.getByText('Often used:').waitFor();
+  const onDoc = (await api(d, '/api/docs/' + hrefs[0].split('/').pop())).doc.tags;
+  const free = (await api(d, '/api/tags?suggest=1')).map((t) => t.name).find((t) => !onDoc.includes(t));
+  if (free) {
+    await d.locator('#dv-tags').fill(free.slice(0, 2));
+    await d.keyboard.press('Tab');
+    await d.getByRole('button', { name: `Remove tag ${free}` }).waitFor();
+  } else problems.push('tags: no tag to suggest');
+  await shot(d, '44-tag-suggestions');
+  d.once('dialog', (dl) => dl.accept());
+  await d.keyboard.press('Escape');
+  await d.keyboard.press('Escape');
+  await d.getByRole('button', { name: 'Edit', exact: true }).waitFor();
+  log('keyboard ok');
+
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {
     await d.goto(B + '/settings/' + tab);
     await d.waitForTimeout(700);

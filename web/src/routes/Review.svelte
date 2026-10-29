@@ -60,7 +60,7 @@
     doc = null;
     try {
       const [d, s, t, st] = await Promise.all([
-        api.get(`/api/docs/${docId}`), api.get('/api/senders'), api.get('/api/tags'), api.get('/api/settings'),
+        api.get(`/api/docs/${docId}`), api.get('/api/senders'), api.get('/api/tags?suggest=1'), api.get('/api/settings'),
       ]);
       doc = d.doc;
       stamps = d.stamps || [];
