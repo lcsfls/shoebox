@@ -504,6 +504,45 @@ func (a *App) handlePassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
+// handleAccount: the signed-in account changes its own name or username.
+// Its Home folder (archive/home/<username>) follows the username.
+func (a *App) handleAccount(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name     *string `json:"name"`
+		Username *string `json:"username"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	u := userFrom(r)
+	if u.viaToken {
+		fail(w, 403, "Change the account in the app.")
+		return
+	}
+	if in.Username != nil {
+		nu := strings.ToLower(strings.TrimSpace(*in.Username))
+		if nu != u.Username {
+			if !usernameRe.MatchString(nu) {
+				fail(w, 400, "Username: 2–32 characters, lowercase letters, digits, dot, dash or underscore.")
+				return
+			}
+			if _, err := a.db.Exec(`UPDATE users SET username = ? WHERE id = ?`, nu, u.ID); err != nil {
+				if strings.Contains(err.Error(), "UNIQUE") {
+					fail(w, 400, "That username is taken.")
+				} else {
+					fail(w, 500, err.Error())
+				}
+				return
+			}
+			a.moveHomeFolder(u.ID, u.Username, nu)
+		}
+	}
+	if in.Name != nil {
+		a.db.Exec(`UPDATE users SET name = ? WHERE id = ?`, clean(*in.Name, 60), u.ID)
+	}
+	writeJSON(w, 200, map[string]any{"user": a.currentUser(r)})
+}
+
 // --- small helpers ---
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	"fmt"
 	"io"
@@ -48,7 +49,7 @@ func (a *App) handleDocs(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	docs, total, err := a.listDocs(DocQuery{Library: lib, Q: q.Get("q"), Status: q.Get("status"), Year: q.Get("year"), Month: q.Get("month"),
-		Tag: q.Get("tag"), Sender: q.Get("sender"), Sort: q.Get("sort"), Limit: limit, Offset: offset})
+		Tags: splitTags(q["tag"]), Sender: q.Get("sender"), Sort: q.Get("sort"), Limit: limit, Offset: offset})
 	if err != nil {
 		fail(w, 400, "Search failed: "+err.Error())
 		return
@@ -136,6 +137,67 @@ func (a *App) handleDocDelete(w http.ResponseWriter, r *http.Request) {
 	a.db.Exec(`DELETE FROM docs_fts WHERE rowid = ?`, d.ID)
 	a.dropCache(d.ID)
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// handleDocsZip: several documents in one ZIP (?ids=1,2,3), each under its
+// path in the archive (year/month/name.pdf); ones still in Review by title.
+func (a *App) handleDocsZip(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	var docs []*Doc
+	for _, s := range strings.Split(r.URL.Query().Get("ids"), ",") {
+		id, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+		if err != nil {
+			continue
+		}
+		d, err := a.getDoc(id)
+		if err != nil || d == nil || a.libRole(u, d.LibraryID) == "" {
+			continue
+		}
+		docs = append(docs, d)
+		if len(docs) > 1000 {
+			fail(w, 400, "At most 1000 documents at once.")
+			return
+		}
+	}
+	if len(docs) == 0 {
+		fail(w, 404, "None of these documents can be found.")
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"shoebox-%d-documents.zip\"", len(docs)))
+	w.Header().Set("Cache-Control", "private, no-cache")
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+	used := map[string]bool{}
+	for _, d := range docs {
+		p, err := a.docFile(d)
+		if err != nil {
+			continue
+		}
+		name := filepath.ToSlash(d.Path)
+		if d.Status == "inbox" {
+			name = "Review/" + pathPart(d.Title) + ".pdf"
+		}
+		for i := 2; used[name]; i++ {
+			name = strings.TrimSuffix(name, ".pdf")
+			name = strings.TrimSuffix(name, fmt.Sprintf(" (%d)", i-1)) + fmt.Sprintf(" (%d).pdf", i)
+		}
+		used[name] = true
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		st, _ := f.Stat()
+		// PDFs hardly shrink: store them as they are, which is quick
+		hdr := &zip.FileHeader{Name: name, Method: zip.Store}
+		if st != nil {
+			hdr.Modified = st.ModTime()
+		}
+		if zf, err := zw.CreateHeader(hdr); err == nil {
+			io.Copy(zf, f)
+		}
+		f.Close()
+	}
 }
 
 func (a *App) handleDocPDF(w http.ResponseWriter, r *http.Request) {
@@ -481,6 +543,19 @@ func (a *App) listNamed(w http.ResponseWriter, q string, args ...any) {
 		out = append(out, n)
 	}
 	writeJSON(w, 200, out)
+}
+
+// splitTags: ?tag=a&tag=b or ?tag=a,b (a tag has no comma: typing one ends it).
+func splitTags(vs []string) []string {
+	var out []string
+	for _, v := range vs {
+		for _, t := range strings.Split(v, ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				out = append(out, t)
+			}
+		}
+	}
+	return out
 }
 
 func (a *App) handleTags(w http.ResponseWriter, r *http.Request) {

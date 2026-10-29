@@ -399,19 +399,25 @@ try {
   await d.waitForTimeout(300);
   if (await d.getByText('Drop to upload').count()) problems.push('drag: dragging a card opened the upload drop zone');
   await d.evaluate(() => document.querySelector('a.doccard').dispatchEvent(new DragEvent('dragend', { bubbles: true })));
-  // ← / → go through the archive list in its order; E edits; tags complete with Tab
-  const hrefs = await d.locator('a.doccard').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+  // on a wide screen a card opens next to the list (?doc=); ← / → go through the list in its order;
+  // E edits; tags complete with Tab; Esc closes
+  const ids = await d.locator('a.doccard').evaluateAll((as) => as.map((a) => a.getAttribute('href').split('/').pop()));
+  const docParam = () => new URL(d.url()).searchParams.get('doc');
   await d.locator('a.doccard').first().click();
+  await d.getByRole('link', { name: 'Open as a full page' }).waitFor();
+  if (!d.url().includes('/archive') || docParam() !== ids[0]) problems.push(`pane: opened at ${d.url()}`);
   await d.getByRole('button', { name: 'Next document' }).waitFor();
+  await d.waitForTimeout(800);
+  await shot(d, '45-archive-pane');
   await d.keyboard.press('ArrowRight');
-  await d.waitForURL((u) => u.pathname === hrefs[1]);
+  await until(d, async () => docParam() === ids[1], 'the next document in the pane');
   await d.keyboard.press('ArrowLeft');
-  await d.waitForURL((u) => u.pathname === hrefs[0]);
+  await until(d, async () => docParam() === ids[0], 'the previous document in the pane');
   await d.waitForTimeout(500);
   await d.keyboard.press('e');
   await d.locator('#dv-tags').focus();
   await d.getByText('Often used:').waitFor();
-  const onDoc = (await api(d, '/api/docs/' + hrefs[0].split('/').pop())).doc.tags;
+  const onDoc = (await api(d, '/api/docs/' + ids[0])).doc.tags;
   const free = (await api(d, '/api/tags?suggest=1')).map((t) => t.name).find((t) => !onDoc.includes(t));
   if (free) {
     await d.locator('#dv-tags').fill(free.slice(0, 2));
@@ -421,9 +427,53 @@ try {
   await shot(d, '44-tag-suggestions');
   d.once('dialog', (dl) => dl.accept());
   await d.keyboard.press('Escape');
-  await d.keyboard.press('Escape');
   await d.getByRole('button', { name: 'Edit', exact: true }).waitFor();
-  log('keyboard ok');
+  await d.keyboard.press('Escape');
+  await d.getByRole('link', { name: 'Open as a full page' }).waitFor({ state: 'detached' });
+  if (docParam()) problems.push('pane: Esc did not close it');
+  // or as a full page, as before
+  await d.getByRole('button', { name: 'Open documents as a full page' }).click();
+  await d.locator('a.doccard').first().click();
+  await d.waitForURL((u) => u.pathname === '/doc/' + ids[0]);
+  await d.getByRole('button', { name: 'Next document' }).waitFor();
+  await d.keyboard.press('ArrowRight');
+  await d.waitForURL((u) => u.pathname === '/doc/' + ids[1]);
+  await d.goto(B + '/archive');
+  await d.getByRole('button', { name: 'Open documents next to the list' }).click();
+  log('keyboard and pane ok');
+
+  // several tags at once: the documents with all of them
+  const tagChips = d.locator('.filters .chips button.chip');
+  await tagChips.nth(1).waitFor();
+  const [t1, t2] = [await tagChips.nth(0).innerText(), await tagChips.nth(1).innerText()];
+  await tagChips.nth(0).click();
+  await tagChips.nth(1).click();
+  await until(d, async () => new URL(d.url()).searchParams.get('tag')?.split(',').length === 2, 'two tags in the filter');
+  const both = await api(d, '/api/docs?tag=' + encodeURIComponent(t1 + ',' + t2));
+  await until(d, async () => (await d.locator('.status').innerText()).includes(`${both.total} document`), 'the count for two tags');
+  await shot(d, '46-archive-two-tags');
+  // choose several and download them as one ZIP
+  await d.goto(B + '/archive');
+  await d.getByRole('button', { name: 'Select', exact: true }).click();
+  const cards = d.locator('a.doccard');
+  await cards.nth(0).click();
+  await cards.nth(2).click({ modifiers: ['Shift'] });
+  await d.getByText('3 selected').waitFor();
+  await shot(d, '47-archive-select');
+  const [zipDl] = await Promise.all([d.waitForEvent('download'), d.getByRole('button', { name: 'Download ZIP' }).click()]);
+  const zipBuf = fs.readFileSync(await zipDl.path());
+  const zipEntries = zipBuf.toString('latin1').split('PK\x01\x02').length - 1;
+  if (zipEntries !== 3) problems.push(`zip: ${zipEntries} files in ${zipDl.suggestedFilename()}`);
+  await d.keyboard.press('Escape');
+  await d.getByText('3 selected').waitFor({ state: 'detached' });
+  log('tags filter, select and zip ok');
+
+  // one's own name
+  await d.goto(B + '/settings/account');
+  await d.locator('input[autocomplete="name"]').fill('Anna Beispiel');
+  await d.getByRole('button', { name: 'Save', exact: true }).click();
+  await d.getByText('Account saved').waitFor();
+  if ((await api(d, '/api/me')).user?.name !== 'Anna Beispiel') problems.push('account: the name was not saved');
 
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {
     await d.goto(B + '/settings/' + tab);

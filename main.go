@@ -202,6 +202,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/docs/{id}", a.member(a.handleDocUpdate))
 	mux.HandleFunc("POST /api/docs/{id}/file", a.member(a.handleDocFile))
 	mux.HandleFunc("DELETE /api/docs/{id}", a.member(a.handleDocDelete))
+	mux.HandleFunc("GET /api/docs/zip", a.auth(a.handleDocsZip))
 	mux.HandleFunc("GET /api/docs/{id}/pdf", a.auth(a.handleDocPDF))
 	mux.HandleFunc("GET /api/docs/{id}/thumb", a.auth(a.handleDocThumb))
 	mux.HandleFunc("GET /api/docs/{id}/page/{n}", a.auth(a.handleDocPage))
@@ -272,6 +273,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /api/tokens", a.auth(a.handleTokenCreate))
 	mux.HandleFunc("DELETE /api/tokens/{id}", a.auth(a.handleTokenDelete))
 	mux.HandleFunc("POST /api/account/password", a.auth(a.handlePassword))
+	mux.HandleFunc("PATCH /api/account", a.auth(a.handleAccount))
 
 	// Paperless import
 	mux.HandleFunc("POST /api/import/paperless/check", a.admin(a.handleImportCheck))

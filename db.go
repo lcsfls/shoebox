@@ -573,9 +573,10 @@ func ftsQuery(q string) string {
 }
 
 type DocQuery struct {
-	Library                                   int64 // required: one library at a time
-	Q, Status, Year, Month, Tag, Sender, Sort string
-	Limit, Offset                             int
+	Library                              int64 // required: one library at a time
+	Q, Status, Year, Month, Sender, Sort string
+	Tags                                 []string // all of them
+	Limit, Offset                        int
 }
 
 func (a *App) listDocs(f DocQuery) ([]*Doc, int, error) {
@@ -609,9 +610,9 @@ func (a *App) listDocs(f DocQuery) ([]*Doc, int, error) {
 			args = append(args, p+"%")
 		}
 	}
-	if f.Tag != "" {
+	for _, tag := range f.Tags {
 		where = append(where, `EXISTS (SELECT 1 FROM doc_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.doc_id = d.id AND t.name = ?)`)
-		args = append(args, f.Tag)
+		args = append(args, tag)
 	}
 	if f.Sender != "" {
 		where = append(where, `s.name = ?`)

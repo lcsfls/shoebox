@@ -7,6 +7,7 @@
   import Icon from '../../components/Icon.svelte';
 
   let pw = $state({ current: '', next: '' });
+  let me = $state({ name: $user?.name || '', username: $user?.username || '' });
   let keys = $state([]);
   let keyName = $state(deviceName());
   let busy = $state(false);
@@ -30,6 +31,15 @@
     await api.del(`/api/passkeys/${k.id}`);
     load();
   }
+  async function rename(e) {
+    e.preventDefault();
+    try {
+      const r = await api.patch('/api/account', { name: me.name, username: me.username });
+      user.set(r.user);
+      me = { name: r.user.name, username: r.user.username };
+      toast('Account saved');
+    } catch (err) { toast(err.message, 'error'); }
+  }
   async function change(e) {
     e.preventDefault();
     try {
@@ -39,6 +49,15 @@
     } catch (err) { toast(err.message, 'error'); }
   }
 </script>
+
+<form class="card sec" onsubmit={rename}>
+  <h2>Your account</h2>
+  <div class="two">
+    <label class="field">Name <span class="hint">shown in the app, on stamps and as who added a document</span><input type="text" bind:value={me.name} maxlength="60" autocomplete="name" /></label>
+    <label class="field">Username <span class="hint">for signing in; your Home folder is renamed along</span><input type="text" bind:value={me.username} maxlength="32" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
+  </div>
+  <div class="actions"><button class="btn" disabled={me.name === $user?.name && me.username === $user?.username}>Save</button></div>
+</form>
 
 <div class="card sec">
   <h2>Passkeys</h2>
@@ -73,5 +92,7 @@
   .rows { list-style: none; margin: 0; padding: 0; }
   .rows li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
   .inline { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+  .two { display: grid; gap: 12px; }
+  @media (min-width: 640px) { .two { grid-template-columns: 1fr 1fr; } }
   .note { background: var(--warn); color: var(--warn-ink); padding: 10px 12px; border-radius: 10px; margin: 0; }
 </style>

@@ -164,8 +164,11 @@ func TestScanReviewFileSearch(t *testing.T) {
 	if _, total, _ := a.listDocs(DocQuery{Library: 1, Year: "2026", Month: "10"}); total != 1 {
 		t.Error("month filter")
 	}
-	if _, total, _ := a.listDocs(DocQuery{Library: 1, Tag: "Strom"}); total != 1 {
+	if _, total, _ := a.listDocs(DocQuery{Library: 1, Tags: []string{"Strom"}}); total != 1 {
 		t.Error("tag filter")
+	}
+	if _, total, _ := a.listDocs(DocQuery{Library: 1, Tags: splitTags([]string{"Strom,Gibts-nicht"})}); total != 0 {
+		t.Error("two tags: a document needs both")
 	}
 
 	// renaming moves the file and keeps it findable
@@ -787,6 +790,18 @@ func TestHomes(t *testing.T) {
 	if code, out, _ := do("GET", fmt.Sprintf("/api/docs/%d", d.ID), nil, ben, 1); code != 200 {
 		t.Errorf("ben can't see it in Family: %d %v", code, out)
 	}
+
+	// renaming oneself: the Home folder follows, a taken name is refused
+	if code, _, _ := do("PATCH", "/api/account", map[string]any{"username": "ben"}, anna, 0); code != 400 {
+		t.Errorf("took ben's username: %d", code)
+	}
+	if code, out, _ := do("PATCH", "/api/account", map[string]any{"username": "anna.b", "name": "Anna B."}, anna, 0); code != 200 || out["user"].(map[string]any)["username"] != "anna.b" {
+		t.Fatalf("rename: %d %v", code, out)
+	}
+	if p, _ := a.libPath(annaHome); p != filepath.Join(a.cfg.Archive, "home", "anna.b") || !fileExists(p) || fileExists(filepath.Join(a.cfg.Archive, "home", "anna")) {
+		t.Errorf("Home after the rename: %s", p)
+	}
+	session("/api/login", map[string]string{"username": "anna.b", "password": "long-password-1"})
 
 	// an account goes with its Home, but only an empty one
 	id, _ := a.insertDoc(NewDoc{Status: "inbox", Path: "x.pdf", Title: "Ben's", LibraryID: benHome})

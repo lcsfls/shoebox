@@ -2,7 +2,7 @@
   import { api } from '../lib/api.js';
   import { toast, libraries } from '../lib/stores.js';
   import { tagInfo, colorFor } from '../lib/tags.js';
-  import { navigate } from '../lib/router.js';
+  import { navigate, setQuery } from '../lib/router.js';
   import { amountInput, parseAmount, formatDate, formatSize, formatAmount, fileVersion } from '../lib/format.js';
   import Icon from '../components/Icon.svelte';
   import DocForm from '../components/DocForm.svelte';
@@ -13,7 +13,8 @@
   import { stampConfig } from '../lib/stamps.js';
   import { recall, more } from '../lib/browse.js';
 
-  let { id } = $props();
+  // embedded: shown in the archive next to the list (?doc=), with a way to the full page
+  let { id, embedded = false, onclose = null } = $props();
   let doc = $state(null);
   let text = $state('');
   let form = $state(null);
@@ -50,6 +51,7 @@
 
   // ← / →: the neighbours in the archive list this document was opened from
   let browse = $state(recall());
+  $effect(() => { id; if (embedded) browse = recall(); }); // the archive next to it may have changed its list
   let pos = $derived(browse ? browse.ids.indexOf(Number(id)) : -1);
   let prevId = $derived(pos > 0 ? browse.ids[pos - 1] : 0);
   let nextId = $derived(pos >= 0 && pos < browse.ids.length - 1 ? browse.ids[pos + 1] : 0);
@@ -64,7 +66,9 @@
     return JSON.stringify(form) === JSON.stringify(was) || confirm('Discard the changes?');
   }
   function go(to) {
-    if (to && mayLeave()) navigate(`/doc/${to}`, true);
+    if (!to || !mayLeave()) return;
+    if (embedded) setQuery({ doc: String(to) });
+    else navigate(`/doc/${to}`, true);
   }
   function cancelEdit() {
     if (mayLeave()) { resetForm(); editing = false; }
@@ -79,6 +83,7 @@
     else if (e.key === 'ArrowRight' && nextId) { e.preventDefault(); go(nextId); }
     else if (e.key === 'e' && mayEdit && !editing) { e.preventDefault(); editing = true; }
     else if (e.key === 'Escape' && editing) cancelEdit();
+    else if (e.key === 'Escape' && embedded) onclose?.();
   }
 
   async function save(e) {
@@ -103,7 +108,8 @@
     try {
       await api.del(`/api/docs/${id}`);
       toast('Deleted');
-      history.length > 1 ? history.back() : navigate('/archive', true);
+      if (embedded) { dispatchEvent(new CustomEvent('sb-doc-moved', { detail: Number(id) })); onclose?.(); }
+      else history.length > 1 ? history.back() : navigate('/archive', true);
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -119,9 +125,13 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="page">
+<div class="page docview" class:embedded>
   <div class="page-head">
-    <button class="btn ghost iconbtn" onclick={() => (history.length > 1 ? history.back() : navigate('/archive'))} aria-label="Back"><Icon name="back" /></button>
+    {#if embedded}
+      <button class="btn ghost iconbtn" onclick={() => onclose?.()} aria-label="Close the document" title="Close (Esc)"><Icon name="close" /></button>
+    {:else}
+      <button class="btn ghost iconbtn" onclick={() => (history.length > 1 ? history.back() : navigate('/archive'))} aria-label="Back"><Icon name="back" /></button>
+    {/if}
     <h1 class="title">{doc ? doc.title || 'Untitled' : ''}</h1>
     {#if pos >= 0 && browse.total > 1}
       <div class="nav">
@@ -129,6 +139,9 @@
         <button type="button" class="btn small iconbtn" onclick={() => go(prevId)} disabled={!prevId} aria-label="Previous document" title="Previous (←)"><Icon name="back" /></button>
         <button type="button" class="btn small iconbtn next" onclick={() => go(nextId)} disabled={!nextId} aria-label="Next document" title="Next (→)"><Icon name="back" /></button>
       </div>
+    {/if}
+    {#if embedded}
+      <a class="btn small iconbtn" href="/doc/{id}" aria-label="Open as a full page" title="Full page"><Icon name="expand" /></a>
     {/if}
   </div>
   {#if error}<p class="error">{error}</p>{/if}
@@ -175,7 +188,7 @@
               <button class="btn small ghost danger" onclick={remove}><Icon name="trash" />Delete</button>
             {/if}
           </div>
-          {#if mayEdit}<MoveTo {doc} onmoved={() => load()} />{/if}
+          {#if mayEdit}<MoveTo {doc} onmoved={() => (embedded ? onclose?.() : load())} />{/if}
           {#if mayEdit || stamps.length}
             <Stamps {doc} {stamps} config={stampCfg} editable={mayEdit} onchange={() => load()} />
           {/if}
@@ -192,6 +205,10 @@
   .title { overflow: hidden; text-overflow: ellipsis; }
   .page-head .nav { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
   .nav .next :global(svg) { transform: scaleX(-1); }
+  .docview { container-type: inline-size; }
+  .docview.embedded { padding: 0; max-width: none; margin: 0; }
+  .embedded .page-head { margin-bottom: 12px; }
+  .embedded .page-head h1 { font-size: 1.2rem; }
   .layout { display: grid; gap: 16px; }
   .side { display: flex; flex-direction: column; gap: 12px; }
   .box { padding: 16px; }
@@ -204,8 +221,9 @@
   .info { display: flex; flex-direction: column; gap: 8px; }
   .path { word-break: break-all; }
   .ocr { white-space: pre-wrap; font-family: var(--mono); font-size: 0.78rem; max-height: 50vh; overflow: auto; background: var(--bg); padding: 10px; border-radius: 8px; margin: 0; }
-  @media (min-width: 900px) {
-    .layout { grid-template-columns: minmax(0, 1.25fr) minmax(340px, 1fr); align-items: start; max-width: 1400px; }
+  /* two columns where there is room: the full page, or the archive's side pane */
+  @container (min-width: 720px) {
+    .layout { grid-template-columns: minmax(0, 1.25fr) minmax(300px, 1fr); align-items: start; max-width: 1400px; }
     .side { position: sticky; top: 20px; }
   }
 </style>

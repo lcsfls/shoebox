@@ -632,3 +632,31 @@ func (a *App) handleDocMove(w http.ResponseWriter, r *http.Request) {
 	a.dropCache(d.ID)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
+
+// moveHomeFolder renames archive/home/<old> to archive/home/<new> after a
+// username change. A Home in another folder, or a name that is taken on
+// disk, stays where it is (paths inside a library are relative, so either
+// way nothing breaks).
+func (a *App) moveHomeFolder(userID int64, oldName, newName string) {
+	home := a.homeLib(userID)
+	if home == 0 {
+		return
+	}
+	cur, err := a.libPath(home)
+	base := filepath.Join(filepath.Clean(a.cfg.Archive), "home")
+	if err != nil || filepath.Clean(cur) != filepath.Join(base, pathPart(oldName)) {
+		return
+	}
+	next := filepath.Join(base, pathPart(newName))
+	if _, err := os.Stat(next); err == nil {
+		log.Printf("Home of %s stays in %s: %s exists", newName, cur, next)
+		return
+	}
+	archiveMu.Lock()
+	defer archiveMu.Unlock()
+	if err := os.Rename(cur, next); err != nil {
+		log.Printf("Home of %s stays in %s: %v", newName, cur, err)
+		return
+	}
+	a.db.Exec(`UPDATE libraries SET path = ? WHERE id = ?`, next, home)
+}
