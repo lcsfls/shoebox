@@ -8,6 +8,7 @@ import (
 	"image/draw"
 	"image/jpeg"
 	_ "image/png"
+	"log"
 	"strings"
 	"time"
 )
@@ -332,8 +333,15 @@ func renderLetter(lh Letterhead, l Letter) []byte {
 	add := func(o string) int { objs = append(objs, o); return len(objs) }
 	add("<< /Type /Catalog /Pages 2 0 R >>")
 	add("") // pages, filled in at the end
-	f1 := add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
-	f2 := add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
+	var f1, f2 int
+	if reg, bold, err := fontsForLetters(); err == nil {
+		f1 = reg.pdfObjects(add, &helveticaWidths)
+		f2 = bold.pdfObjects(add, &helveticaBoldWidths)
+	} else {
+		log.Printf("letters: the embedded font is broken (%v), using the viewer's Helvetica", err)
+		f1 = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+		f2 = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
+	}
 	logo := 0
 	if lh.HasLogo && len(lh.logoJPEG) > 0 {
 		logo = add(fmt.Sprintf("<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
@@ -354,10 +362,9 @@ func renderLetter(lh Letterhead, l Letter) []byte {
 			if r.right {
 				x -= textW(r.text, r.size, r.bold)
 			}
+			// all text in solid black, the small print too: a printer rasters
+			// gray, and at 7 pt that frays (gray runs only stand back by size)
 			g := 0.0
-			if r.gray {
-				g = 0.35
-			}
 			fmt.Fprintf(&c, "%.2f g BT /%s %.1f Tf %.2f %.2f Td (%s) Tj ET\n", g, font, r.size, x, H-r.y, winAnsi(r.text))
 		}
 		// fold marks and the punch mark (page 1)

@@ -332,11 +332,12 @@ func (a *App) handleLetterPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer os.RemoveAll(dir)
+	// sharp on a high-resolution screen too (the PDF itself is vector text)
 	pdf := filepath.Join(dir, "letter.pdf")
 	os.WriteFile(pdf, renderLetter(a.letterhead(lib), *l), 0o600)
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	if err := exec.CommandContext(ctx, "pdftoppm", "-r", "70", "-jpeg", "-jpegopt", "quality=82", pdf, filepath.Join(dir, "p")).Run(); err != nil {
+	if err := exec.CommandContext(ctx, "pdftoppm", "-r", "130", "-jpeg", "-jpegopt", "quality=85", pdf, filepath.Join(dir, "p")).Run(); err != nil {
 		fail(w, 500, "Preview failed: "+err.Error())
 		return
 	}

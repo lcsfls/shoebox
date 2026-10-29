@@ -101,8 +101,12 @@ func winAnsi(s string) string {
 		case r == '·':
 			c = 0xB7
 		default:
-			b.WriteByte('?')
-			continue
+			x, ok := ansi(r) // Š, Ž, Œ and the rest of WinAnsi
+			if !ok {
+				b.WriteByte('?')
+				continue
+			}
+			c = int(x)
 		}
 		fmt.Fprintf(&b, "\\%03o", c)
 	}

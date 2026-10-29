@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,6 +41,21 @@ func TestLetterLayout(t *testing.T) {
 	l := Letter{Form: "B", Lang: "de", Recipient: "Empfänger GmbH\nHauptstraße 1\n54321 Zielstadt", Date: "2026-03-04",
 		Subject: "Kündigung Vertrag", Salutation: "Sehr geehrte Damen und Herren,",
 		Body: strings.Repeat(body+"\n\n", 6), Closing: "Mit freundlichen Grüßen", Signature: "Erika Muster", OurRef: "AZ-17"}
+
+	// the font goes inside, so every viewer and printer sets the same sharp letters
+	pdf := renderLetter(lh, l)
+	if !bytes.Contains(pdf, []byte("/FontFile2")) || bytes.Contains(pdf, []byte("/Subtype /Type1")) {
+		t.Error("the letter font is not embedded")
+	}
+	reg, _, err := fontsForLetters()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cm, err := unicodeCmap(sfntTable(reg.data, "cmap")); err != nil || cm['ß'] == 0 || cm['€'] == 0 || cm['Ž'] == 0 {
+		t.Errorf("subset font: %v", err)
+	} else if len(reg.data) > 120000 {
+		t.Errorf("the subset font is %d bytes", len(reg.data))
+	}
 
 	for _, form := range []string{"B", "A"} {
 		l.Form = form
