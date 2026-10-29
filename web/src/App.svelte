@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from './lib/api.js';
-  import { user, counts, toasts, can, setLibraries, library, canEdit } from './lib/stores.js';
+  import { user, counts, toasts, can, setLibraries, library, canEdit, canAdd } from './lib/stores.js';
   import LibrarySwitch from './components/LibrarySwitch.svelte';
   import DropZone from './components/DropZone.svelte';
   import MoveTray from './components/MoveTray.svelte';
@@ -110,7 +110,7 @@
           <Icon name="box" size={26} /><span>shoebox</span>
         </a>
         <LibrarySwitch />
-        {#if $canEdit}
+        {#if $canAdd}
           <div class="side-actions">
             <a class="btn primary" href="/scan"><Icon name="scan" />Scan</a>
           </div>

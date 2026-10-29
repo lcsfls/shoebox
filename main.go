@@ -109,6 +109,7 @@ func newApp(cfg Config) (*App, error) {
 	a.jobs = newJobs(a)
 	a.importer = &Importer{app: a}
 	a.watcher = &Watcher{app: a}
+	a.setupLibraries()
 	n, _ := a.userCount()
 	if n == 0 {
 		a.setupCode = randomCode()

@@ -17,7 +17,7 @@
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   let base = $derived(root);
   let firstAtRoot = $derived(libs.some((l) => l.id === 1 && l.path === root));
-  let ownFolder = $state('shared');
+  let ownFolder = $state('family');
   let moving = $state(false);
   async function moveFirst() {
     if (!confirm(`Move the documents of “${libs.find((l) => l.id === 1)?.name}” into ${root}/${ownFolder}? The year folders move there; other libraries' folders and the backups stay. Do it while nobody copies files into the archive.`)) return;
@@ -40,7 +40,7 @@
 
   async function load() {
     const [all, u] = await Promise.all([api.get('/api/libraries/all'), api.get('/api/users')]);
-    libs = all.libraries;
+    libs = [...all.libraries].sort((x, y) => (y.home ? 1 : 0) - (x.home ? 1 : 0)); // your Home first
     root = all.root;
     users = u;
   }
@@ -92,6 +92,7 @@
 <div class="card sec">
   <h2>Libraries</h2>
   <p class="muted">Each library is its own archive: its own folder, documents, tags, senders and sorting rules. Share one with the accounts that should see it. Editors add and change documents; readers search, read and download.</p>
+  <p class="muted">Every account has a private <strong>Home</strong> (<span class="mono">home/&lt;username&gt;</span>): new scans and uploads land there, and from Review they move into Family with “Move to …”. Nobody else sees a Home, admins neither.</p>
 </div>
 
 {#each libs as l (l.id)}
@@ -104,9 +105,9 @@
           <button type="button" class="btn small ghost" onclick={() => (renaming = 0)}>Cancel</button>
         </form>
       {:else}
-        <h3 class="grow">{l.name}</h3>
+        <h3 class="grow">{l.name}{#if l.home}<span class="muted small private">only you see it</span>{/if}</h3>
         <button class="btn small ghost" onclick={() => { renaming = l.id; newName = l.name; }}>Rename</button>
-        {#if l.id !== 1}<button class="btn small ghost danger iconbtn" onclick={() => remove(l)} aria-label="Remove {l.name}" disabled={l.docs > 0} title={l.docs ? 'Only empty libraries can be removed' : 'Remove'}><Icon name="trash" /></button>{/if}
+        {#if l.id !== 1 && !l.home}<button class="btn small ghost danger iconbtn" onclick={() => remove(l)} aria-label="Remove {l.name}" disabled={l.docs > 0} title={l.docs ? 'Only empty libraries can be removed' : 'Remove'}><Icon name="trash" /></button>{/if}
       {/if}
     </div>
     <p class="small"><span class="mono">{l.path}</span><span class="muted"> · {l.docs} document{l.docs === 1 ? '' : 's'}</span></p>
@@ -119,6 +120,7 @@
         </div>
       </div>
     {/if}
+    {#if !l.home}
     <ul class="rows">
       {#each l.members as m (m.user_id)}
         <li transition:slide={motion({ duration: 160 })}>
@@ -142,6 +144,7 @@
         <button class="btn small" onclick={() => addMember(l)} disabled={!adding[l.id]}>Add as reader</button>
       </div>
     {/if}
+    {/if}
   </div>
 {/each}
 
@@ -163,6 +166,7 @@
   .own input { max-width: 180px; }
   .lib .head { display: flex; align-items: center; gap: 6px; }
   .lib h3 { margin: 0; font-size: 1.05rem; }
+  .private { font-weight: 400; margin-left: 8px; }
   .lib p { margin: 0; overflow-wrap: anywhere; }
   .rows { list-style: none; margin: 0; padding: 0; }
   .rows li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }

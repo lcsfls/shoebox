@@ -37,7 +37,7 @@ async function until(page, fn, what, ms = 90000) {
 const api = (page, p, opts = {}) => page.evaluate(async ([p, o]) => {
   const h = { 'X-Shoebox': '1', 'Content-Type': 'application/json' };
   const lib = localStorage.getItem('sb-library'); // the library picked in the app
-  if (lib) h['X-Library'] = lib;
+  if (lib && !/[?&]library=/.test(p)) h['X-Library'] = lib; // ?library= asks for another one
   const r = await fetch(p, { ...o, headers: h });
   return r.json();
 }, [p, opts]);
@@ -133,8 +133,8 @@ try {
   await d.waitForTimeout(1200);
   await shot(d, '09-document');
 
-  // a PDF copied onto the "NAS" by hand
-  const target = path.join(ARCHIVE, '2026', '01');
+  // a PDF copied onto the "NAS" by hand, into the family library's folder
+  const target = path.join(ARCHIVE, 'family', '2026', '01');
   fs.mkdirSync(target, { recursive: true });
   fs.copyFileSync(LETTER_PDF, path.join(target, 'Nebenkosten-Abrechnung.pdf'));
   const old = new Date(Date.now() - 60000);
@@ -145,11 +145,11 @@ try {
   await d.goto(B + '/settings/storage');
   await d.getByRole('button', { name: 'Look through now' }).click();
   await until(d, async () => {
-    const r = await api(d, '/api/docs?year=2026&month=01');
+    const r = await api(d, '/api/docs?year=2026&month=01&library=1');
     return r.total === 1 && r.docs[0].source === 'folder' && r.docs[0].path === '2026/01/Nebenkosten-Abrechnung.pdf';
   }, 'the hand-copied file in the library (dated by its folder 2026/01)');
   await d.reload();
-  await d.getByText('Shoebox can write here').waitFor();
+  await d.getByText('Shoebox can write here').first().waitFor();
   await shot(d, '10-settings-storage', true);
   log('folder watcher ok');
 
@@ -316,7 +316,7 @@ try {
   await d.waitForTimeout(1500);
   await shot(d, '41-letter-editor');
   const letterPDF = await d.evaluate(async (u) => { const r = await fetch(u); const b = new Uint8Array(await r.arrayBuffer()); return [r.status, r.headers.get('content-type'), String.fromCharCode(...b.slice(0, 5))]; },
-    `/api/letters/${letterID}/pdf?library=1`);
+    `/api/letters/${letterID}/pdf?library=${await d.evaluate(() => localStorage.getItem('sb-library'))}`);
   if (letterPDF[0] !== 200 || letterPDF[2] !== '%PDF-') problems.push(`letter pdf: ${letterPDF}`);
   await d.getByRole('button', { name: 'Finish', exact: true }).click();
   await d.getByRole('button', { name: 'Finish and file' }).click();
@@ -330,7 +330,11 @@ try {
   await shot(d, '42-letter-finished');
   log('letters ok');
 
-  // a second library in its own folder, then switch to it and back
+  // everyone has a private Home (scans and uploads went there) next to Family
+  const libs0 = await api(d, '/api/libraries');
+  if (libs0[0]?.name !== 'Home' || !libs0[0].home || libs0[1]?.name !== 'Family') problems.push(`libraries: ${JSON.stringify(libs0)}`);
+  if (!fs.existsSync(path.join(ARCHIVE, 'home', 'anna', '2026', '10'))) problems.push('library: the filed upload is not in home/anna/2026/10');
+  // a further library in its own folder, then switch to it and back
   const privDir = path.join(path.dirname(ARCHIVE), 'private');
   await d.goto(B + '/settings/libraries');
   await d.getByLabel('Name', { exact: true }).fill('Privat');
@@ -340,7 +344,7 @@ try {
   if (!fs.existsSync(privDir)) problems.push('library: folder not created');
   await shot(d, '35-libraries', true);
   await d.locator('aside button[aria-haspopup="listbox"]').click();
-  await d.getByRole('option', { name: /Shared/ }).waitFor();
+  await d.getByRole('option', { name: /Family/ }).waitFor();
   await shot(d, '35b-library-menu');
   await d.getByRole('option', { name: /Privat/ }).click();
   await d.goto(B + '/archive');
@@ -351,15 +355,9 @@ try {
   await d.getByText('Scan a document').waitFor();
   await shot(d, '36-library-private');
   await d.locator('aside button[aria-haspopup="listbox"]').click();
-  await d.getByRole('option', { name: /Shared/ }).click();
+  await d.getByRole('option', { name: /Home/ }).click();
   await d.waitForTimeout(500);
-  if ((await api(d, '/api/docs')).total < 3) problems.push('library: back in Shared, the documents are missing');
-  // give "Shared" a folder of its own, next to the others
-  await d.goto(B + '/settings/libraries');
-  d.once('dialog', (dl) => dl.accept());
-  await d.getByRole('button', { name: 'Move it there' }).click();
-  await d.getByText(/Moved into/).waitFor();
-  if (!fs.existsSync(path.join(ARCHIVE, 'shared', '2026'))) problems.push('library: the year folders did not move into shared/');
+  if ((await api(d, '/api/docs')).total < 3) problems.push('library: back in Home, the documents are missing');
   const someDoc = (await api(d, '/api/docs?limit=1')).docs[0];
   const pdfRes = await d.evaluate(async (id) => (await fetch(`/api/docs/${id}/pdf`, { headers: { 'X-Shoebox': '1' } })).status, someDoc.id);
   if (pdfRes !== 200) problems.push(`library: after the move the PDF answers ${pdfRes}`);
@@ -378,14 +376,15 @@ try {
   await d.mouse.up();
   await d.getByText('Moved to “Privat”').waitFor();
   const movedDoc = (await api(d, `/api/docs/${movedID}`)).doc;
-  if (movedDoc?.library_id !== 2 || !fs.existsSync(path.join(path.dirname(ARCHIVE), 'private', movedDoc.path))) problems.push(`drag to library: ${JSON.stringify(movedDoc)}`);
+  const privId = (await api(d, '/api/libraries')).find((l) => l.name === 'Privat')?.id;
+  if (!privId || movedDoc?.library_id !== privId || !fs.existsSync(path.join(path.dirname(ARCHIVE), 'private', movedDoc.path))) problems.push(`drag to library: ${JSON.stringify(movedDoc)}`);
   // and back without dragging (as on a phone): "Move to …" on the document
   await d.goto(B + `/doc/${movedID}`);
   await d.getByRole('button', { name: 'Move to …' }).click();
-  await d.getByRole('button', { name: 'Move to Shared' }).click();
-  await d.getByText('Moved to “Shared”').waitFor();
+  await d.getByRole('button', { name: 'Move to Family' }).click();
+  await d.getByText('Moved to “Family”').waitFor();
   const backDoc = (await api(d, `/api/docs/${movedID}`)).doc;
-  if (backDoc?.library_id !== 1 || !fs.existsSync(path.join(ARCHIVE, 'shared', backDoc.path))) problems.push(`move to library: ${JSON.stringify(backDoc)}`);
+  if (backDoc?.library_id !== 1 || !fs.existsSync(path.join(ARCHIVE, 'family', backDoc.path))) problems.push(`move to library: ${JSON.stringify(backDoc)}`);
   log('libraries ok');
 
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {

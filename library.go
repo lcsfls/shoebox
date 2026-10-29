@@ -13,15 +13,19 @@ import (
 )
 
 // Libraries: separate archives, each with its own folder, documents, tags,
-// senders and sorting rules, shared with chosen accounts. Library 1 lives in
-// SB_ARCHIVE; the others in folders an admin picks. In a library an account
-// is an editor (adds and changes documents, tags, rules) or a reader.
+// senders and sorting rules, shared with chosen accounts. Library 1 is the
+// family's (SB_ARCHIVE/family); every account also has a private Home
+// (SB_ARCHIVE/home/<username>) that only it sees, where its scans and
+// uploads land. Others live in folders an admin picks. In a library an
+// account is an editor (adds and changes documents, tags, rules) or a reader.
 
 type Library struct {
 	ID      int64       `json:"id"`
 	Name    string      `json:"name"`
 	Path    string      `json:"path"`
 	Role    string      `json:"role,omitempty"` // the signed-in account's role here
+	Home    bool        `json:"home,omitempty"` // the signed-in account's private Home
+	OwnerID int64       `json:"-"`              // set for a Home: whose it is
 	Docs    int         `json:"docs"`
 	Members []libMember `json:"members,omitempty"`
 }
@@ -52,7 +56,7 @@ func (a *App) libPath(id int64) (string, error) {
 
 // allLibraries with their folders (for the folder watcher and admins).
 func (a *App) allLibraries() []Library {
-	rows, err := a.db.Query(`SELECT l.id, l.name, l.path, (SELECT count(*) FROM docs d WHERE d.library_id = l.id) FROM libraries l ORDER BY l.id`)
+	rows, err := a.db.Query(`SELECT l.id, l.name, l.path, coalesce(l.owner_id, 0), (SELECT count(*) FROM docs d WHERE d.library_id = l.id) FROM libraries l ORDER BY l.id`)
 	if err != nil {
 		return nil
 	}
@@ -60,7 +64,7 @@ func (a *App) allLibraries() []Library {
 	var out []Library
 	for rows.Next() {
 		var l Library
-		rows.Scan(&l.ID, &l.Name, &l.Path, &l.Docs)
+		rows.Scan(&l.ID, &l.Name, &l.Path, &l.OwnerID, &l.Docs)
 		if l.ID == 1 && l.Path == "" {
 			l.Path = a.cfg.Archive
 		}
@@ -69,10 +73,11 @@ func (a *App) allLibraries() []Library {
 	return out
 }
 
-// userLibraries: the libraries an account belongs to, with its role there.
+// userLibraries: the libraries an account belongs to, with its role there;
+// its Home first.
 func (a *App) userLibraries(u *User) []Library {
-	rows, err := a.db.Query(`SELECT l.id, l.name, l.path, m.role, (SELECT count(*) FROM docs d WHERE d.library_id = l.id AND d.status <> 'missing')
-		FROM libraries l JOIN library_members m ON m.library_id = l.id WHERE m.user_id = ? ORDER BY l.id`, u.ID)
+	rows, err := a.db.Query(`SELECT l.id, l.name, l.path, coalesce(l.owner_id, 0), m.role, (SELECT count(*) FROM docs d WHERE d.library_id = l.id AND d.status <> 'missing')
+		FROM libraries l JOIN library_members m ON m.library_id = l.id WHERE m.user_id = ? ORDER BY l.owner_id IS NULL, l.id`, u.ID)
 	if err != nil {
 		return []Library{}
 	}
@@ -80,10 +85,11 @@ func (a *App) userLibraries(u *User) []Library {
 	out := []Library{}
 	for rows.Next() {
 		var l Library
-		rows.Scan(&l.ID, &l.Name, &l.Path, &l.Role, &l.Docs)
+		rows.Scan(&l.ID, &l.Name, &l.Path, &l.OwnerID, &l.Role, &l.Docs)
 		if l.ID == 1 && l.Path == "" {
 			l.Path = a.cfg.Archive
 		}
+		l.Home = l.OwnerID != 0 && l.OwnerID == u.ID
 		if u.Role == "viewer" { // a read-only API token
 			l.Role = "reader"
 		}
@@ -167,7 +173,15 @@ func (a *App) handleLibraries(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleLibrariesAll(w http.ResponseWriter, r *http.Request) {
-	libs := a.allLibraries()
+	me := userFrom(r).ID
+	libs := []Library{}
+	for _, l := range a.allLibraries() {
+		if l.OwnerID != 0 && l.OwnerID != me {
+			continue // someone else's Home stays private, also from admins
+		}
+		l.Home = l.OwnerID != 0
+		libs = append(libs, l)
+	}
 	for i := range libs {
 		rows, err := a.db.Query(`SELECT u.id, u.username, u.name, m.role FROM library_members m JOIN users u ON u.id = m.user_id WHERE m.library_id = ? ORDER BY u.username`, libs[i].ID)
 		if err != nil {
@@ -181,16 +195,13 @@ func (a *App) handleLibrariesAll(w http.ResponseWriter, r *http.Request) {
 		}
 		rows.Close()
 	}
-	if libs == nil {
-		libs = []Library{}
-	}
 	writeJSON(w, 200, map[string]any{"root": filepath.Clean(a.cfg.Archive), "libraries": libs})
 }
 
 // handleLibraryOwnFolder moves the first library's files from the top of the
-// archive folder into a folder of its own (e.g. archive/shared), so every
-// library is a folder side by side. Paths in the database are relative to
-// the library's folder, so they stay as they are.
+// archive folder into a folder of its own (e.g. archive/family), so every
+// library is a folder side by side. Shoebox does this by itself on start;
+// this is for when that failed.
 func (a *App) handleLibraryOwnFolder(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Folder string `json:"folder"`
@@ -198,16 +209,26 @@ func (a *App) handleLibraryOwnFolder(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
+	target, moved, code, err := a.moveFirstLibrary(in.Folder)
+	if err != nil {
+		fail(w, code, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "path": target, "moved": moved})
+}
+
+// moveFirstLibrary: see handleLibraryOwnFolder. Paths in the database are
+// relative to the library's folder, so they stay as they are. On failure it
+// gives the HTTP status that fits.
+func (a *App) moveFirstLibrary(folder string) (string, int, int, error) {
 	var cur string
 	a.db.QueryRow(`SELECT path FROM libraries WHERE id = 1`).Scan(&cur)
 	if cur != "" {
-		fail(w, 400, "This library already has a folder of its own.")
-		return
+		return "", 0, 400, errors.New("This library already has a folder of its own.")
 	}
-	name := pathPart(in.Folder)
+	name := pathPart(folder)
 	if name == "" || strings.HasPrefix(name, ".") || reYearFolder.MatchString(name) {
-		fail(w, 400, "Pick a folder name like “shared” (not a year).")
-		return
+		return "", 0, 400, errors.New("Pick a folder name like “family” (not a year).")
 	}
 	root := filepath.Clean(a.cfg.Archive)
 	target := filepath.Join(root, name)
@@ -218,29 +239,34 @@ func (a *App) handleLibraryOwnFolder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if others[target] {
-		fail(w, 400, "Another library uses that folder.")
-		return
+		return "", 0, 400, errors.New("Another library uses that folder.")
 	}
 	if ents, err := os.ReadDir(target); err == nil && len(ents) > 0 {
-		fail(w, 400, "That folder exists and isn't empty. Pick another name.")
-		return
+		return "", 0, 400, errors.New("That folder exists and isn't empty. Pick another name.")
+	}
+	// a folder that holds other libraries (archive/home) stays where it is
+	holdsOther := func(p string) bool {
+		for o := range others {
+			if o == p || strings.HasPrefix(o, p+string(filepath.Separator)) {
+				return true
+			}
+		}
+		return false
 	}
 	archiveMu.Lock()
 	defer archiveMu.Unlock()
 	if err := os.MkdirAll(target, 0o750); err != nil {
-		fail(w, 500, "Can't create the folder: "+err.Error())
-		return
+		return "", 0, 500, errors.New("Can't create the folder: " + err.Error())
 	}
 	ents, err := os.ReadDir(root)
 	if err != nil {
-		fail(w, 500, err.Error())
-		return
+		return "", 0, 500, err
 	}
 	moved := 0
 	for _, e := range ents {
 		p := filepath.Join(root, e.Name())
 		// leave the folder itself, other libraries, backups and hidden files
-		if p == target || others[p] || strings.HasPrefix(e.Name(), ".") || skipDir(e.Name()) {
+		if p == target || holdsOther(p) || strings.HasPrefix(e.Name(), ".") || skipDir(e.Name()) {
 			continue
 		}
 		if err := os.Rename(p, filepath.Join(target, e.Name())); err != nil {
@@ -251,14 +277,101 @@ func (a *App) handleLibraryOwnFolder(w http.ResponseWriter, r *http.Request) {
 					os.Rename(q, filepath.Join(root, b.Name()))
 				}
 			}
-			fail(w, 500, "Moving "+e.Name()+" failed, nothing was changed: "+err.Error())
-			return
+			return "", 0, 500, errors.New("Moving " + e.Name() + " failed, nothing was changed: " + err.Error())
 		}
 		moved++
 	}
 	a.db.Exec(`UPDATE libraries SET path = ? WHERE id = 1`, target)
 	log.Printf("library 1 moved into %s (%d entries)", target, moved)
-	writeJSON(w, 200, map[string]any{"ok": true, "path": target, "moved": moved})
+	return target, moved, 200, nil
+}
+
+// homeLib is the account's private Home, 0 if it has none.
+func (a *App) homeLib(userID int64) int64 {
+	var id int64
+	a.db.QueryRow(`SELECT id FROM libraries WHERE owner_id = ?`, userID).Scan(&id)
+	return id
+}
+
+// ensureHome gives an account its Home (archive/home/<username>) if it
+// has none yet.
+func (a *App) ensureHome(userID int64, username string) (int64, error) {
+	if id := a.homeLib(userID); id > 0 {
+		return id, nil
+	}
+	p := filepath.Join(filepath.Clean(a.cfg.Archive), "home", pathPart(username))
+	if err := os.MkdirAll(p, 0o750); err != nil {
+		return 0, err
+	}
+	res, err := a.db.Exec(`INSERT INTO libraries(name, path, owner_id, created_at) VALUES('Home', ?, ?, ?)`, p, userID, now())
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	a.db.Exec(`INSERT OR IGNORE INTO library_members(library_id, user_id, role) VALUES(?, ?, 'editor')`, id, userID)
+	return id, nil
+}
+
+// setupLibraries on start: the family library in a folder of its own
+// (archive/family) and a Home for every account.
+func (a *App) setupLibraries() {
+	var cur string
+	a.db.QueryRow(`SELECT path FROM libraries WHERE id = 1`).Scan(&cur)
+	if cur == "" {
+		if _, _, _, err := a.moveFirstLibrary("family"); err != nil {
+			log.Printf("the family library stays at the top of the archive folder: %v", err)
+		}
+	}
+	rows, err := a.db.Query(`SELECT id, username FROM users WHERE id NOT IN (SELECT owner_id FROM libraries WHERE owner_id IS NOT NULL)`)
+	if err != nil {
+		return
+	}
+	type acct struct {
+		id   int64
+		name string
+	}
+	var todo []acct
+	for rows.Next() {
+		var x acct
+		rows.Scan(&x.id, &x.name)
+		todo = append(todo, x)
+	}
+	rows.Close()
+	for _, x := range todo {
+		if _, err := a.ensureHome(x.id, x.name); err != nil {
+			log.Printf("no Home for %s: %v", x.name, err)
+		}
+	}
+}
+
+// homeOwner: whose Home a library is (0: none).
+func (a *App) homeOwner(lib int64) int64 {
+	var owner int64
+	a.db.QueryRow(`SELECT coalesce(owner_id, 0) FROM libraries WHERE id = ?`, lib).Scan(&owner)
+	return owner
+}
+
+// sortingLibs: whose rules, senders and filed documents sort a new document.
+// A Home has few of its own, so it also uses those of the shared libraries
+// its owner edits.
+func (a *App) sortingLibs(lib int64) []int64 {
+	out := []int64{lib}
+	owner := a.homeOwner(lib)
+	if owner == 0 {
+		return out
+	}
+	rows, err := a.db.Query(`SELECT l.id FROM libraries l JOIN library_members m ON m.library_id = l.id
+		WHERE m.user_id = ? AND m.role = 'editor' AND l.owner_id IS NULL ORDER BY l.id`, owner)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		rows.Scan(&id)
+		out = append(out, id)
+	}
+	return out
 }
 
 var reYearFolder = regexp.MustCompile(`^\d{4}$`)
@@ -342,8 +455,13 @@ func (a *App) handleLibraryUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var cur string
-	if a.db.QueryRow(`SELECT path FROM libraries WHERE id = ?`, id).Scan(&cur) != nil {
+	var owner int64
+	if a.db.QueryRow(`SELECT path, coalesce(owner_id, 0) FROM libraries WHERE id = ?`, id).Scan(&cur, &owner) != nil || (owner != 0 && owner != userFrom(r).ID) {
 		fail(w, 404, "No such library.")
+		return
+	}
+	if in.Path != nil && owner != 0 {
+		fail(w, 400, "A Home's folder is archive/home/<username>.")
 		return
 	}
 	if in.Path != nil {
@@ -376,6 +494,10 @@ func (a *App) handleLibraryDelete(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r, "id")
 	if id == 1 {
 		fail(w, 400, "The first library stays.")
+		return
+	}
+	if a.homeOwner(id) != 0 {
+		fail(w, 400, "A Home stays as long as its account.")
 		return
 	}
 	var n int
@@ -411,6 +533,10 @@ func (a *App) handleLibraryMember(w http.ResponseWriter, r *http.Request) {
 	var x int
 	if a.db.QueryRow(`SELECT 1 FROM libraries WHERE id = ?`, id).Scan(&x) != nil || a.db.QueryRow(`SELECT 1 FROM users WHERE id = ?`, in.UserID).Scan(&x) != nil {
 		fail(w, 404, "No such library or account.")
+		return
+	}
+	if a.homeOwner(id) != 0 {
+		fail(w, 400, "A Home stays private: only its owner sees it.")
 		return
 	}
 	if in.Role == "" {

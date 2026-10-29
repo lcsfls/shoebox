@@ -11,6 +11,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,6 +35,12 @@ func testApp(t *testing.T) *App {
 	s.Languages = testLang()
 	a.saveSettings(s)
 	return a
+}
+
+// famDir is the folder of the first (family) library: archive/family.
+func famDir(a *App) string {
+	p, _ := a.libPath(1)
+	return p
 }
 
 func waitJob(t *testing.T, a *App, job *Job) Job {
@@ -140,7 +147,7 @@ func TestScanReviewFileSearch(t *testing.T) {
 	if d.Status != "filed" || d.Path != want {
 		t.Fatalf("filed as %s %q", d.Status, d.Path)
 	}
-	if _, err := os.Stat(filepath.Join(a.cfg.Archive, want)); err != nil {
+	if _, err := os.Stat(filepath.Join(famDir(a), want)); err != nil {
 		t.Fatal("archive file missing")
 	}
 
@@ -171,7 +178,7 @@ func TestScanReviewFileSearch(t *testing.T) {
 	if !strings.HasSuffix(d.Path, "_Strom-Oktober.pdf") {
 		t.Errorf("not renamed: %s", d.Path)
 	}
-	if _, err := os.Stat(filepath.Join(a.cfg.Archive, want)); err == nil {
+	if _, err := os.Stat(filepath.Join(famDir(a), want)); err == nil {
 		t.Error("old file still there")
 	}
 
@@ -205,7 +212,7 @@ func TestFolderWatcher(t *testing.T) {
 	}
 	var jb bytes.Buffer
 	jpeg.Encode(&jb, gray, &jpeg.Options{Quality: 90})
-	noText := filepath.Join(a.cfg.Archive, "2026", "01", "Scan_0001.pdf")
+	noText := filepath.Join(famDir(a), "2026", "01", "Scan_0001.pdf")
 	os.MkdirAll(filepath.Dir(noText), 0o755)
 	imagePDF(t, jb.Bytes(), noText)
 	if hasText(pdfText(ctx, noText)) {
@@ -234,7 +241,7 @@ func TestFolderWatcher(t *testing.T) {
 	}
 
 	// moved by hand: followed, not duplicated
-	moved := filepath.Join(a.cfg.Archive, "2026", "02", "Strom.pdf")
+	moved := filepath.Join(famDir(a), "2026", "02", "Strom.pdf")
 	os.MkdirAll(filepath.Dir(moved), 0o755)
 	os.Rename(noText, moved)
 	os.Chtimes(moved, old, old)
@@ -477,16 +484,31 @@ func TestLearningAndSuggestions(t *testing.T) {
 	}
 }
 
-func TestLibraries(t *testing.T) {
-	a := testApp(t)
+// rawBody is sent as it is (a multipart upload) instead of as JSON.
+type rawBody struct {
+	ctype string
+	data  []byte
+}
+
+type doFunc func(method, path string, body any, cookie *http.Cookie, lib int64) (int, map[string]any, []any)
+
+// testHTTP: the app behind a test server; do sends JSON as a signed-in
+// account (in a library, 0 for none), session signs in.
+func testHTTP(t *testing.T, a *App) (doFunc, func(path string, body any) *http.Cookie) {
 	srv := httptest.NewServer(a.routes())
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 	c := srv.Client()
 	do := func(method, path string, body any, cookie *http.Cookie, lib int64) (int, map[string]any, []any) {
-		b, _ := json.Marshal(body)
+		ctype := "application/json"
+		var b []byte
+		if raw, ok := body.(rawBody); ok {
+			ctype, b = raw.ctype, raw.data
+		} else {
+			b, _ = json.Marshal(body)
+		}
 		req, _ := http.NewRequest(method, srv.URL+path, bytes.NewReader(b))
 		req.Header.Set("Origin", srv.URL)
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", ctype)
 		if lib > 0 {
 			req.Header.Set("X-Library", fmt.Sprint(lib))
 		}
@@ -521,6 +543,12 @@ func TestLibraries(t *testing.T) {
 		t.Fatal("no session")
 		return nil
 	}
+	return do, session
+}
+
+func TestLibraries(t *testing.T) {
+	a := testApp(t)
+	do, session := testHTTP(t, a)
 	anna := session("/api/setup", map[string]string{"code": a.setupCode, "username": "anna", "password": "long-password-1"})
 	// ben only gets the shared library
 	if code, out, _ := do("POST", "/api/users", map[string]any{"username": "ben", "password": "long-password-2", "role": "member"}, anna, 0); code != 200 {
@@ -538,7 +566,7 @@ func TestLibraries(t *testing.T) {
 	if code, _, _ := do("POST", "/api/libraries", map[string]string{"name": "Bad", "path": a.cfg.DataDir}, anna, 0); code != 400 {
 		t.Errorf("library in the data folder accepted: %d", code)
 	}
-	if code, _, _ := do("POST", "/api/libraries", map[string]string{"name": "Taken", "path": filepath.Join(a.cfg.Archive, "2026")}, anna, 0); code != 200 {
+	if code, _, _ := do("POST", "/api/libraries", map[string]string{"name": "Taken", "path": filepath.Join(famDir(a), "2026")}, anna, 0); code != 200 {
 		t.Errorf("an empty folder inside the first library was refused: %d", code)
 	}
 	if code, _, _ := do("POST", "/api/libraries", map[string]string{"name": "Ben", "path": priv + "2"}, ben, 0); code != 403 {
@@ -564,7 +592,7 @@ func TestLibraries(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(priv, d.Path)); err != nil || !strings.HasPrefix(d.Path, "2026/05/") {
 		t.Fatalf("filed into %q (in %s): %v", d.Path, priv, err)
 	}
-	if _, err := os.Stat(filepath.Join(a.cfg.Archive, d.Path)); err == nil {
+	if _, err := os.Stat(filepath.Join(famDir(a), d.Path)); err == nil {
 		t.Error("the private document landed in the shared folder too")
 	}
 
@@ -630,7 +658,7 @@ func TestLibraries(t *testing.T) {
 		t.Fatalf("move: %d %v", code, out)
 	}
 	moved, _ := a.getDoc(id)
-	if _, err := os.Stat(filepath.Join(a.cfg.Archive, moved.Path)); err != nil || moved.LibraryID != 1 || moved.Sender != "Praxis Beispiel" || len(moved.Tags) != 1 {
+	if _, err := os.Stat(filepath.Join(famDir(a), moved.Path)); err != nil || moved.LibraryID != 1 || moved.Sender != "Praxis Beispiel" || len(moved.Tags) != 1 {
 		t.Errorf("after the move: %+v %v", moved, err)
 	}
 	if _, err := os.Stat(filepath.Join(priv, d.Path)); err == nil {
@@ -644,6 +672,15 @@ func TestLibraries(t *testing.T) {
 
 func TestLibraryOwnFolder(t *testing.T) {
 	a := testApp(t)
+	// as before Homes: the first library at the top of the archive folder
+	if famDir(a) != filepath.Join(a.cfg.Archive, "family") {
+		t.Fatalf("on start the first library went to %s", famDir(a))
+	}
+	os.Remove(famDir(a))
+	a.db.Exec(`UPDATE libraries SET path = '' WHERE id = 1`)
+	if _, err := a.createUser("anna", "Anna", "a-long-password", "admin"); err != nil {
+		t.Fatal(err)
+	}
 	// a filed document of the first library, and the folder of a second one
 	f, _ := os.Open("testdata/letter.png")
 	img, _ := png.Decode(f)
@@ -656,7 +693,7 @@ func TestLibraryOwnFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.MkdirAll(filepath.Join(a.cfg.Archive, "private"), 0o750)
-	a.db.Exec(`INSERT INTO libraries(id, name, path, created_at) VALUES(2, 'Private', ?, ?)`, filepath.Join(a.cfg.Archive, "private"), now())
+	a.db.Exec(`INSERT INTO libraries(name, path, created_at) VALUES('Private', ?, ?)`, filepath.Join(a.cfg.Archive, "private"), now())
 	os.MkdirAll(filepath.Join(a.cfg.Archive, ".shoebox-backup"), 0o750)
 
 	req := httptest.NewRequest("POST", "/api/libraries/1/own-folder", strings.NewReader(`{"folder":"shared"}`))
@@ -671,7 +708,7 @@ func TestLibraryOwnFolder(t *testing.T) {
 	if err != nil || !strings.HasPrefix(p, filepath.Join(a.cfg.Archive, "shared")+string(filepath.Separator)) || !fileExists(p) {
 		t.Fatalf("document now at %s (%v)", p, err)
 	}
-	for _, stays := range []string{"private", ".shoebox-backup"} {
+	for _, stays := range []string{"private", ".shoebox-backup", "home/anna"} {
 		if !fileExists(filepath.Join(a.cfg.Archive, stays)) {
 			t.Errorf("%s was moved", stays)
 		}
@@ -680,5 +717,87 @@ func TestLibraryOwnFolder(t *testing.T) {
 	a.watcher.scan()
 	if d, _ := a.getDoc(id); d.Status != "filed" {
 		t.Errorf("after the move: %s", d.Status)
+	}
+}
+
+func TestHomes(t *testing.T) {
+	needTools(t, "tesseract", "qpdf", "pdftotext", "pdfinfo")
+	a := testApp(t)
+	do, session := testHTTP(t, a)
+	anna := session("/api/setup", map[string]string{"code": a.setupCode, "username": "anna", "password": "long-password-1"})
+	if code, out, _ := do("POST", "/api/users", map[string]any{"username": "ben", "password": "long-password-2", "role": "member"}, anna, 0); code != 200 {
+		t.Fatalf("add ben: %d %v", code, out)
+	}
+	ben := session("/api/login", map[string]string{"username": "ben", "password": "long-password-2"})
+
+	// each sees their own Home first, then Family
+	libsOf := func(c *http.Cookie) []any { _, _, l := do("GET", "/api/libraries", nil, c, 0); return l }
+	al, bl := libsOf(anna), libsOf(ben)
+	if len(al) != 2 || len(bl) != 2 {
+		t.Fatalf("libraries: anna %v, ben %v", al, bl)
+	}
+	aHome, bHome := al[0].(map[string]any), bl[0].(map[string]any)
+	annaHome, benHome := int64(aHome["id"].(float64)), int64(bHome["id"].(float64))
+	if aHome["home"] != true || aHome["name"] != "Home" || al[1].(map[string]any)["name"] != "Family" || annaHome == benHome {
+		t.Fatalf("anna's libraries: %v", al)
+	}
+	if aHome["path"] != filepath.Join(a.cfg.Archive, "home", "anna") || famDir(a) != filepath.Join(a.cfg.Archive, "family") {
+		t.Errorf("folders: %v, family %s", aHome["path"], famDir(a))
+	}
+	// private, also from admins
+	_, all, _ := do("GET", "/api/libraries/all", nil, anna, 0)
+	for _, l := range all["libraries"].([]any) {
+		if int64(l.(map[string]any)["id"].(float64)) == benHome {
+			t.Error("the admin sees ben's Home")
+		}
+	}
+	if code, _, _ := do("PUT", fmt.Sprintf("/api/libraries/%d/members", benHome), map[string]any{"user_id": 1, "role": "reader"}, anna, 0); code != 400 {
+		t.Errorf("admin joined ben's Home: %d", code)
+	}
+	if code, _, _ := do("GET", "/api/docs", nil, anna, benHome); code != 403 {
+		t.Errorf("anna reads ben's Home: %d", code)
+	}
+
+	// a scan lands in the Home, even while Family is picked, and Family's rules sort it
+	a.db.Exec(`INSERT INTO rules(name, kind, pattern, nocase, sender, tags, title, position, enabled, library_id)
+		VALUES('Stadtwerke', 'any', 'stadtwerke', 1, 'Stadtwerke Musterstadt', '["Strom"]', 'Stromrechnung', 0, 1, 1)`)
+	var mb bytes.Buffer
+	mw := multipart.NewWriter(&mb)
+	fw, _ := mw.CreateFormFile("pages", "page-1.png")
+	img, _ := os.ReadFile("testdata/letter.png")
+	fw.Write(img)
+	mw.Close()
+	code, out, _ := do("POST", "/api/scan", rawBody{mw.FormDataContentType(), mb.Bytes()}, anna, 1)
+	if code != 200 || int64(out["library"].(float64)) != annaHome {
+		t.Fatalf("scan: %d %v", code, out)
+	}
+	a.jobs.run(context.Background(), <-a.jobs.queue)
+	var j Job
+	for _, x := range a.jobs.snapshot() {
+		j = x
+	}
+	d, _ := a.getDoc(j.DocID)
+	if d == nil || d.LibraryID != annaHome || d.Status != "inbox" || d.Rule != "Stadtwerke" || d.Sender != "Stadtwerke Musterstadt" {
+		t.Fatalf("scanned: %+v (%s)", d, j.Error)
+	}
+	// shared with Family from Review
+	if code, out, _ := do("POST", fmt.Sprintf("/api/docs/%d/move", d.ID), map[string]any{"library": 1}, anna, annaHome); code != 200 {
+		t.Fatalf("move to Family: %d %v", code, out)
+	}
+	if code, out, _ := do("GET", fmt.Sprintf("/api/docs/%d", d.ID), nil, ben, 1); code != 200 {
+		t.Errorf("ben can't see it in Family: %d %v", code, out)
+	}
+
+	// an account goes with its Home, but only an empty one
+	id, _ := a.insertDoc(NewDoc{Status: "inbox", Path: "x.pdf", Title: "Ben's", LibraryID: benHome})
+	if code, _, _ := do("DELETE", "/api/users/2", nil, anna, 0); code != 400 {
+		t.Errorf("deleted ben with documents in his Home: %d", code)
+	}
+	a.db.Exec(`DELETE FROM docs WHERE id = ?`, id)
+	if code, out, _ := do("DELETE", "/api/users/2", nil, anna, 0); code != 200 {
+		t.Fatalf("delete ben: %d %v", code, out)
+	}
+	if a.homeOwner(benHome) != 0 || a.homeLib(2) != 0 {
+		t.Error("ben's Home is left over")
 	}
 }

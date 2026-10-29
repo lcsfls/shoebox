@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"regexp"
@@ -141,7 +142,13 @@ func (a *App) createUser(username, name, pw, role string) (int64, error) {
 		}
 		return 0, err
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err == nil {
+		if _, herr := a.ensureHome(id, username); herr != nil {
+			log.Printf("no Home for %s: %v", username, herr)
+		}
+	}
+	return id, err
 }
 
 func (a *App) startSession(w http.ResponseWriter, r *http.Request, uid int64) {
@@ -443,7 +450,28 @@ func (a *App) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "Shoebox needs at least one admin.")
 		return
 	}
+	// the Home goes with the account, but only empty: nobody else can see
+	// what is in it, so its owner moves the documents to Family first
+	home := a.homeLib(id)
+	if home > 0 {
+		var n int
+		a.db.QueryRow(`SELECT count(*) FROM docs WHERE library_id = ? AND status <> 'missing'`, home).Scan(&n)
+		if n > 0 {
+			fail(w, 400, fmt.Sprintf("This account still has %d document(s) in its Home. Sign in as it and move them to Family (or delete them) first.", n))
+			return
+		}
+	}
 	a.db.Exec(`DELETE FROM users WHERE id = ?`, id)
+	if home > 0 {
+		a.db.Exec(`DELETE FROM docs WHERE library_id = ?`, home)
+		for _, t := range []string{"rules", "tags", "senders", "letters", "libraries"} {
+			col := "library_id"
+			if t == "libraries" {
+				col = "id"
+			}
+			a.db.Exec(`DELETE FROM `+t+` WHERE `+col+` = ?`, home)
+		}
+	}
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 

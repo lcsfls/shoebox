@@ -1,7 +1,7 @@
 <script>
   // Drop PDFs and photos anywhere on the page to upload them into the
-  // current library (desktop, for accounts that may add documents).
-  import { canEdit, currentLibrary, libraries } from '../lib/stores.js';
+  // account's Home (desktop, for accounts that may add documents).
+  import { canAdd, intakeLibrary, libraries } from '../lib/stores.js';
   import { uploadFiles } from '../lib/uploads.js';
   import { dragging } from '../lib/drop.js';
   import { fade } from 'svelte/transition';
@@ -12,7 +12,7 @@
   const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
 
   function enter(e) {
-    if (!$canEdit || !hasFiles(e) || document.querySelector('[role="dialog"]')) return;
+    if (!$canAdd || !hasFiles(e) || document.querySelector('[role="dialog"]')) return;
     e.preventDefault();
     depth++;
     dragging.set(true);
@@ -41,7 +41,7 @@
     <div class="inner">
       <Icon name="upload" size={34} />
       <strong>Drop to upload</strong>
-      <span>PDFs and photos{$libraries.length > 1 ? ` into “${$currentLibrary?.name}”` : ''}; each file becomes a document.</span>
+      <span>PDFs and photos{$libraries.length > 1 ? ` into “${$intakeLibrary?.name}”` : ''}; each file becomes a document.</span>
     </div>
   </div>
 {/if}

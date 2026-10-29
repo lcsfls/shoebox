@@ -1,7 +1,7 @@
 <script>
   import { onMount, tick } from 'svelte';
   import { upload } from '../lib/api.js';
-  import { toast, counts, libraries, currentLibrary } from '../lib/stores.js';
+  import { toast, counts, libraries, intakeLibrary, showIntake } from '../lib/stores.js';
   import { navigate } from '../lib/router.js';
   import { detectQuad, fullQuad, warp, enhance, outputSize, sharpness, toGray, autoShot } from '../lib/scan.js';
   import Icon from '../components/Icon.svelte';
@@ -332,7 +332,8 @@
     pages.forEach((p, i) => fd.append('pages', p.blob, `page-${i + 1}.jpg`));
     sending = 0.01;
     try {
-      await upload('/api/scan', fd, (p) => (sending = Math.max(p, 0.01)));
+      const r = await upload('/api/scan', fd, (p) => (sending = Math.max(p, 0.01)));
+      showIntake(r.library);
       counts.update((c) => ({ ...c, busy: c.busy + 1 }));
       toast(`Scan sent (${pages.length} page${pages.length === 1 ? '' : 's'}). Reading the text …`);
       stopCamera();
@@ -360,7 +361,7 @@
 <div class="scan">
   <header class="bar">
     <button class="round" onclick={close} aria-label="Close the scanner"><Icon name="close" /></button>
-    <span class="title">{mode === 'crop' ? 'Adjust the corners' : `Page ${pages.length + 1}`}{#if $libraries.length > 1}<span class="into">into {$currentLibrary?.name}</span>{/if}</span>
+    <span class="title">{mode === 'crop' ? 'Adjust the corners' : `Page ${pages.length + 1}`}{#if $libraries.length > 1}<span class="into">into {$intakeLibrary?.name}</span>{/if}</span>
     {#if torchAvailable && mode === 'camera'}
       <button class="round" class:on={torch} onclick={toggleTorch} aria-pressed={torch} aria-label={torch ? 'Turn the light off' : 'Turn the light on'}><Icon name="flash" /></button>
     {:else}

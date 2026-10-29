@@ -184,6 +184,9 @@ var migrations = []string{
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL);
 	CREATE INDEX letters_library ON letters(library_id, status, updated_at);`,
+	// 6: a private Home library for each account (owner_id); the first library is the family's
+	`ALTER TABLE libraries ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+	UPDATE libraries SET name = 'Family' WHERE id = 1 AND name = 'Shared';`,
 }
 
 func migrate(db *sql.DB) error {

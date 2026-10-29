@@ -3,7 +3,7 @@
   import { api } from '../lib/api.js';
   import { uploadFiles, uploading } from '../lib/uploads.js';
   import { dragging } from '../lib/drop.js';
-  import { toast, counts, canEdit } from '../lib/stores.js';
+  import { toast, counts, canAdd } from '../lib/stores.js';
   import LibrarySwitch from '../components/LibrarySwitch.svelte';
   import { fly } from 'svelte/transition';
   import { motion } from '../lib/motion.js';
@@ -48,7 +48,7 @@
   </form>
 
   <div class="mobile-only libtop"><LibrarySwitch compact /></div>
-  {#if $canEdit}
+  {#if $canAdd}
   <div class="actions">
     <a class="scan" href="/scan">
       <span class="scan-icon"><Icon name="scan" size={30} /></span>

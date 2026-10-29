@@ -24,12 +24,13 @@ No Redis, no Celery, no PostgreSQL: one Go binary with a SQLite index, Tesseract
 - **It learns from your archive.** A new letter gets the tags and the sender that its most similar filed documents share. Shoebox also **suggests sorting rules**: a line that appears in every letter of one sender and in no other becomes a rule with one click.
 - **Mark it on the page.** On the desktop, the pen next to a field opens the page: drag a box around the date, the amount or the sender, and Shoebox fills the field.
 - **Pages afterwards.** Reorder, turn, remove or re-crop the pages of a document; the first version is kept.
-- **A plain folder you own.** `archive/2026/10/2026-10-24_Stadtwerke_Stromrechnung.pdf`. Title, sender, tags and date are also written into the PDF itself, so the folder makes sense without Shoebox.
-- **The folder works both ways.** Copy a PDF into the archive (for example straight onto the NAS into `2026/01`) and Shoebox adds it to the library, adds a text layer if it has none, and dates it by its folder. Files you move or delete there are followed.
+- **A plain folder you own.** `archive/family/2026/10/2026-10-24_Stadtwerke_Stromrechnung.pdf`. Title, sender, tags and date are also written into the PDF itself, so the folder makes sense without Shoebox.
+- **The folder works both ways.** Copy a PDF into the archive (for example straight onto the NAS into `family/2026/01`) and Shoebox adds it to the library, adds a text layer if it has none, and dates it by its folder. Files you move or delete there are followed.
 - **Search** across the text, title, sender and tags, with word beginnings (`strom` finds “Stromrechnung”). Browse by year and month, tag or sender.
 - **Move over from Paperless-ngx** in a few clicks: documents, tags, correspondents, document types, dates, notes, custom fields and matching rules, through its API. Paperless is only read; you can test with 50 documents and run it again.
 - **Stamps.** “Eingang” / “Received” and “Bezahlt” / “Paid” with the date, burned into the PDF where the page has room; the unstamped version is kept.
 - **Write letters.** DIN 5008 letters (form A or B, German or English) with your letterhead, logo and footer, a live preview, print, and on *Finish* a copy goes into the archive.
+- **Home and Family.** Every account has a private Home (`archive/home/<username>`) that nobody else sees, admins neither: new scans and uploads land there, and from Review a document moves into Family (`archive/family`) with *Move to …*. The sorting rules, senders and tags of Family also sort what lands in a Home.
 - **Libraries you share.** Separate archives, each in its own folder (another NAS share, or a folder next to the first), with their own tags, senders and rules: a private one, one for the household, one for the company. Each is shared with chosen accounts, who can edit or only read.
 - **Accounts**, **passkeys** for signing in with the phone's or computer's screen lock, and **API tokens** for scripts and network scanners.
 - **Database backups** into the archive folder (the NAS) on a button press or every day.

@@ -151,6 +151,24 @@ type Learned struct {
 	Sender string   `json:"sender"`
 }
 
+// learnFor: learn from the library itself and, for a Home, from the shared
+// libraries its owner edits (see sortingLibs); the library's own documents first.
+func (a *App) learnFor(lib int64, text string, exclude int64) Learned {
+	out := Learned{Tags: []string{}}
+	for _, l := range a.sortingLibs(lib) {
+		x := a.learn(l, text, exclude)
+		for _, t := range x.Tags {
+			if !containsFold(out.Tags, t) {
+				out.Tags = append(out.Tags, t)
+			}
+		}
+		if out.Sender == "" {
+			out.Sender = x.Sender
+		}
+	}
+	return out
+}
+
 func (a *App) learn(lib int64, text string, exclude int64) Learned {
 	ns := a.neighbours(lib, text, exclude)
 	out := Learned{Tags: []string{}}
@@ -198,7 +216,7 @@ func (a *App) handleDocLearned(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, 200, a.learn(d.LibraryID, a.docText(d.ID), d.ID))
+	writeJSON(w, 200, a.learnFor(d.LibraryID, a.docText(d.ID), d.ID))
 }
 
 // --- rule suggestions ---

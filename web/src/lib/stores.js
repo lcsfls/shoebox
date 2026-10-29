@@ -31,6 +31,14 @@ export function setLibraries(list) {
   if (!list?.some((l) => l.id === cur)) library.set(list?.[0]?.id || 0);
 }
 export const currentLibrary = derived([libraries, library], ([ls, id]) => ls.find((l) => l.id === id) || null);
+/** Where new scans and uploads go: the account's private Home (the server picks it as well). */
+export const intakeLibrary = derived([libraries, currentLibrary], ([ls, cur]) => ls.find((l) => l.home) || cur);
+/** May the account scan and upload? */
+export const canAdd = derived(intakeLibrary, (l) => l?.role === 'editor');
+/** After a scan or upload: look at the library it went into, so it shows in Review. */
+export function showIntake(id) {
+  if (id && id !== get(library) && get(libraries).some((l) => l.id === id)) library.set(id);
+}
 /** May the account add and change documents in the current library? */
 export const canEdit = derived(currentLibrary, (l) => l?.role === 'editor');
 /** … in the library of a given document. */

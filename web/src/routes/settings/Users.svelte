@@ -90,9 +90,9 @@
     </label>
   </div>
   <div class="two">
-    <label class="field">In the first library
+    <label class="field">In Family
       <select bind:value={shared}><option value="editor">Can edit</option><option value="reader">Can read</option><option value="">No access</option></select>
-      <span class="hint">More libraries under Settings → Libraries.</span>
+      <span class="hint">Every account also gets a private Home for its scans. More libraries under Settings → Libraries.</span>
     </label>
   </div>
   <div class="actions"><button class="btn primary">Create account</button></div>

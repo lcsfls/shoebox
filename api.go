@@ -301,9 +301,22 @@ func imagesOnly(name string, head []byte) (string, bool) {
 	return ext, ok && ext != ".pdf"
 }
 
+// intakeLib: where new scans and uploads go. Into the account's own Home,
+// to be looked at there and shared with Family from Review; ?library=
+// picks another one (scripts, the API).
+func (a *App) intakeLib(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	u := userFrom(r)
+	if r.URL.Query().Get("library") == "" {
+		if home := a.homeLib(u.ID); home > 0 && a.libRole(u, home) == "editor" {
+			return home, true
+		}
+	}
+	return a.currentLib(w, r, true)
+}
+
 // handleScan: the pages of one document, photographed and straightened in the browser.
 func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
-	lib, ok := a.currentLib(w, r, true)
+	lib, ok := a.intakeLib(w, r)
 	if !ok {
 		return
 	}
@@ -327,12 +340,12 @@ func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job := a.jobs.add(&Job{Kind: "scan", Name: fmt.Sprintf("Scan, %d page(s)", len(pages)), files: pages, dir: dir, userID: userFrom(r).ID, LibraryID: lib})
-	writeJSON(w, 200, map[string]any{"job": job.ID})
+	writeJSON(w, 200, map[string]any{"job": job.ID, "library": lib})
 }
 
 // handleUpload: PDFs and photos; each file becomes its own document.
 func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
-	lib, ok := a.currentLib(w, r, true)
+	lib, ok := a.intakeLib(w, r)
 	if !ok {
 		return
 	}
@@ -378,7 +391,7 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "No files received.")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"jobs": ids})
+	writeJSON(w, 200, map[string]any{"jobs": ids, "library": lib})
 }
 
 // handleJobs lists the work on the libraries the account belongs to.
