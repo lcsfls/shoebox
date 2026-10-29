@@ -464,8 +464,25 @@ try {
   const zipBuf = fs.readFileSync(await zipDl.path());
   const zipEntries = zipBuf.toString('latin1').split('PK\x01\x02').length - 1;
   if (zipEntries !== 3) problems.push(`zip: ${zipEntries} files in ${zipDl.suggestedFilename()}`);
+  // dragging one of the selected cards takes all of them along
+  const picked3 = await cards.evaluateAll((as) => as.slice(0, 3).map((a) => Number(a.getAttribute('href').split('/').pop())));
+  const box3 = await cards.nth(1).boundingBox();
+  await d.mouse.move(box3.x + box3.width / 2, box3.y + box3.height / 2);
+  await d.mouse.down();
+  await d.mouse.move(box3.x + box3.width / 2 + 30, box3.y + box3.height / 2 + 30, { steps: 5 });
+  await d.getByText('Move 3 documents to').waitFor();
+  await d.getByRole('button', { name: 'Move to Privat' }).hover();
+  await d.mouse.up();
+  await d.getByText('Moved 3 documents to “Privat”').waitFor();
+  for (const id of picked3) {
+    const m = (await api(d, `/api/docs/${id}`)).doc;
+    if (m?.library_id !== privId) problems.push(`drag selected: document ${id} is in library ${m?.library_id}`);
+  }
+  // and back, the later steps look for them here
+  const homeId = (await api(d, '/api/libraries')).find((l) => l.home)?.id;
+  for (const id of picked3) await api(d, `/api/docs/${id}/move`, { method: 'POST', body: JSON.stringify({ library: homeId }) });
   await d.keyboard.press('Escape');
-  await d.getByText('3 selected').waitFor({ state: 'detached' });
+  await d.getByText('selected', { exact: false }).first().waitFor({ state: 'detached' });
   log('tags filter, select and zip ok');
 
   // one's own name

@@ -19,7 +19,12 @@
   let docs = $state([]);
   // a card dragged into another library leaves this list
   $effect(() => {
-    const gone = (e) => (docs = docs.filter((d) => d.id !== e.detail));
+    const gone = (e) => {
+      if (!docs.some((d) => d.id === e.detail)) return;
+      docs = docs.filter((d) => d.id !== e.detail);
+      sel = sel.filter((x) => x !== e.detail);
+      total = Math.max(0, total - 1);
+    };
     addEventListener('sb-doc-moved', gone);
     return () => removeEventListener('sb-doc-moved', gone);
   });
@@ -133,12 +138,11 @@
       try {
         await api.post(`/api/docs/${id}/move`, { library: lib.id });
         ok++;
-        docs = docs.filter((d) => d.id !== id);
+        dispatchEvent(new CustomEvent('sb-doc-moved', { detail: id }));
       } catch (err) {
         failed.push(err.message);
       }
     }
-    total -= ok;
     toast(`Moved ${ok} document${ok === 1 ? '' : 's'} to “${lib.name}”` + (failed.length ? `; ${failed.length} not: ${failed[0]}` : ''), failed.length ? 'error' : 'info', 6000);
     stopSelecting();
   }
@@ -280,7 +284,8 @@
     {/if}
     <div class="grid">
       {#each docs as d, i (d.id)}<div class="cell" animate:flip={motion({ duration: 240 })} in:fade={motion({ duration: 160 })}>
-        <DocCard doc={d} href="/doc/{d.id}" {selecting} selected={sel.includes(d.id)} onselect={(e) => tick(i, e)} onopen={() => open(d)} current={showPane && d.id === openId} />
+        <DocCard doc={d} href="/doc/{d.id}" {selecting} selected={sel.includes(d.id)} onselect={(e) => tick(i, e)} onopen={() => open(d)} current={showPane && d.id === openId}
+          dragIds={selecting && sel.includes(d.id) ? sel : null} />
       </div>{/each}
     </div>
     {#if docs.length < total}

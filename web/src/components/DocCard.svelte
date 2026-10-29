@@ -3,7 +3,8 @@
   import { formatDate, formatAmount, snippetParts, fileVersion } from '../lib/format.js';
   // selecting: a click (or Space) ticks the card instead of opening it
   // onopen: opens it somewhere else (the archive's side pane); true when it did
-  let { doc, href, selecting = false, selected = false, onselect = null, current = false, onopen = null } = $props();
+  // dragIds: what a drag carries (all selected ones when this card is among them)
+  let { doc, href, selecting = false, selected = false, onselect = null, current = false, onopen = null, dragIds = null } = $props();
   function click(e) {
     if (selecting && onselect) {
       e.preventDefault();
@@ -17,7 +18,7 @@
 <a class="doccard card" class:selected class:current {href} onclick={click} aria-current={current ? 'true' : undefined}
   role={selecting ? 'checkbox' : undefined} aria-checked={selecting ? selected : undefined}
   onkeydown={(e) => { if (selecting && e.key === ' ') click(e); }}
-  ondragstart={(e) => { e.dataTransfer.setData('application/x-shoebox-doc', String(doc.id)); e.dataTransfer.effectAllowed = 'move'; }}>
+  ondragstart={(e) => { e.dataTransfer.setData('application/x-shoebox-doc', (dragIds || [doc.id]).join(',')); e.dataTransfer.effectAllowed = 'move'; }}>
   {#if selecting}<span class="tick" aria-hidden="true">{selected ? '✓' : ''}</span>{/if}
   <Thumb id={doc.id} updated={fileVersion(doc)} />
   <span class="body">

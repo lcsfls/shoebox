@@ -11,18 +11,29 @@
   let over = $state(0);
   let targets = $derived($libraries.filter((l) => l.id !== $library && l.role === 'editor'));
 
-  function start(e) { if ([...(e.dataTransfer?.types || [])].includes(TYPE) && targets.length) dragging = true; }
+  let count = $state(1); // several when selected cards are dragged together
+  function start(e) {
+    if (![...(e.dataTransfer?.types || [])].includes(TYPE) || !targets.length) return;
+    count = e.dataTransfer.getData(TYPE).split(',').filter(Boolean).length || 1;
+    dragging = true;
+  }
   function end() { dragging = false; over = 0; }
   async function drop(e, lib) {
     e.preventDefault();
-    const id = Number(e.dataTransfer.getData(TYPE));
+    const ids = e.dataTransfer.getData(TYPE).split(',').map(Number).filter(Boolean);
     end();
-    if (!id) return;
-    try {
-      await api.post(`/api/docs/${id}/move`, { library: lib.id });
-      toast(`Moved to “${lib.name}”`);
-      dispatchEvent(new CustomEvent('sb-doc-moved', { detail: id }));
-    } catch (err) { toast(err.message, 'error'); }
+    if (!ids.length) return;
+    let ok = 0;
+    const failed = [];
+    for (const id of ids) {
+      try {
+        await api.post(`/api/docs/${id}/move`, { library: lib.id });
+        ok++;
+        dispatchEvent(new CustomEvent('sb-doc-moved', { detail: id }));
+      } catch (err) { failed.push(err.message); }
+    }
+    if (!failed.length) toast(ok === 1 ? `Moved to “${lib.name}”` : `Moved ${ok} documents to “${lib.name}”`);
+    else toast(`Moved ${ok} of ${ids.length} to “${lib.name}”; ${failed[0]}`, 'error', 6000);
   }
 </script>
 
@@ -30,7 +41,7 @@
 
 {#if dragging}
   <div class="tray card" transition:fly={motion({ y: 16, duration: 160 })}>
-    <span class="muted small">Move to</span>
+    <span class="muted small">{count > 1 ? `Move ${count} documents to` : 'Move to'}</span>
     {#each targets as l (l.id)}
       <div class="target" class:over={over === l.id} role="button" tabindex="-1" aria-label="Move to {l.name}"
         ondragenter={(e) => { e.preventDefault(); over = l.id; }} ondragover={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
