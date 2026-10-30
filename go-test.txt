@@ -1,0 +1,83 @@
+=== RUN   TestScanReviewFileSearch
+2026/10/30 09:42:33 library 1 moved into /tmp/TestScanReviewFileSearch3096014588/001/archive/family (0 entries)
+2026/10/30 09:42:33 No account yet. Open Shoebox in the browser and use this setup code: 46F9EA72
+--- PASS: TestScanReviewFileSearch (1.67s)
+=== RUN   TestFolderWatcher
+2026/10/30 09:42:35 library 1 moved into /tmp/TestFolderWatcher1338032708/001/archive/family (0 entries)
+2026/10/30 09:42:35 No account yet. Open Shoebox in the browser and use this setup code: 691B0CAE
+2026/10/30 09:42:35 archive scan: 1 new, 0 gone
+2026/10/30 09:42:36 archive scan: 1 new, 1 gone
+2026/10/30 09:42:36 archive scan: 0 new, 1 gone
+--- PASS: TestFolderWatcher (1.66s)
+=== RUN   TestHTTPAuth
+2026/10/30 09:42:36 library 1 moved into /tmp/TestHTTPAuth66043129/001/archive/family (0 entries)
+2026/10/30 09:42:36 No account yet. Open Shoebox in the browser and use this setup code: 5E0BC65B
+--- PASS: TestHTTPAuth (0.17s)
+=== RUN   TestRolesAndTokens
+2026/10/30 09:42:37 library 1 moved into /tmp/TestRolesAndTokens89633315/001/archive/family (0 entries)
+2026/10/30 09:42:37 No account yet. Open Shoebox in the browser and use this setup code: B30F2207
+--- PASS: TestRolesAndTokens (0.17s)
+=== RUN   TestLearningAndSuggestions
+2026/10/30 09:42:37 library 1 moved into /tmp/TestLearningAndSuggestions4127320146/001/archive/family (0 entries)
+2026/10/30 09:42:37 No account yet. Open Shoebox in the browser and use this setup code: 4314F8B2
+--- PASS: TestLearningAndSuggestions (0.02s)
+=== RUN   TestLibraries
+2026/10/30 09:42:37 library 1 moved into /tmp/TestLibraries3298589079/001/archive/family (0 entries)
+2026/10/30 09:42:37 No account yet. Open Shoebox in the browser and use this setup code: 2933EA94
+2026/10/30 09:42:37 archive scan: 1 new, 0 gone
+--- PASS: TestLibraries (1.92s)
+=== RUN   TestLibraryOwnFolder
+2026/10/30 09:42:39 library 1 moved into /tmp/TestLibraryOwnFolder3570462180/001/archive/family (0 entries)
+2026/10/30 09:42:39 No account yet. Open Shoebox in the browser and use this setup code: 1725CF30
+2026/10/30 09:42:39 library 1 moved into /tmp/TestLibraryOwnFolder3570462180/001/archive/shared (1 entries)
+--- PASS: TestLibraryOwnFolder (0.26s)
+=== RUN   TestHomes
+2026/10/30 09:42:39 library 1 moved into /tmp/TestHomes3594983368/001/archive/family (0 entries)
+2026/10/30 09:42:39 No account yet. Open Shoebox in the browser and use this setup code: A46B0D25
+--- PASS: TestHomes (0.66s)
+=== RUN   TestFindDate
+--- PASS: TestFindDate (0.00s)
+=== RUN   TestFindAmount
+--- PASS: TestFindAmount (0.00s)
+=== RUN   TestFTSQuery
+--- PASS: TestFTSQuery (0.00s)
+=== RUN   TestTargetPath
+--- PASS: TestTargetPath (0.00s)
+=== RUN   TestRules
+--- PASS: TestRules (0.00s)
+=== RUN   TestTitleFromFile
+--- PASS: TestTitleFromFile (0.00s)
+=== RUN   TestYearMonthFromPath
+--- PASS: TestYearMonthFromPath (0.00s)
+=== RUN   TestGuessTitleAndSender
+--- PASS: TestGuessTitleAndSender (0.00s)
+=== RUN   TestTitleChecks
+--- PASS: TestTitleChecks (0.00s)
+=== RUN   TestGuessSender
+--- PASS: TestGuessSender (0.00s)
+=== RUN   TestLetterLayout
+--- PASS: TestLetterLayout (0.09s)
+=== RUN   TestBurnStamp
+--- PASS: TestBurnStamp (0.51s)
+=== RUN   TestWinAnsi
+--- PASS: TestWinAnsi (0.00s)
+=== RUN   TestStampLabel
+--- PASS: TestStampLabel (0.00s)
+=== RUN   TestFreeSpot
+--- PASS: TestFreeSpot (0.00s)
+=== RUN   TestOCRPipeline
+--- PASS: TestOCRPipeline (1.18s)
+=== RUN   TestMetadataRoundTrip
+--- PASS: TestMetadataRoundTrip (0.73s)
+=== RUN   TestNewerVersion
+--- PASS: TestNewerVersion (0.00s)
+=== RUN   TestApplyUpdate
+    update.go:367: updated v0.2.0 → v0.3.0
+    update.go:370: update: no answer; going back to v0.2.0
+--- PASS: TestApplyUpdate (0.07s)
+=== RUN   TestParseBBox
+--- PASS: TestParseBBox (0.00s)
+=== RUN   TestLooseAmount
+--- PASS: TestLooseAmount (0.00s)
+PASS
+ok  	github.com/lcsfls/shoebox	9.137s

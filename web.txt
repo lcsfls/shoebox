@@ -1,0 +1,105 @@
+
+added 21 packages in 1s
+
+> test
+> node --test test/*.test.mjs
+
+TAP version 13
+# Subtest: amounts as people type them
+ok 1 - amounts as people type them
+  ---
+  duration_ms: 0.797123
+  type: 'test'
+  ...
+# Subtest: file name preview matches the server
+ok 2 - file name preview matches the server
+  ---
+  duration_ms: 0.567921
+  type: 'test'
+  ...
+# Subtest: search snippets
+ok 3 - search snippets
+  ---
+  duration_ms: 1.432524
+  type: 'test'
+  ...
+# Subtest: stamp dates and labels
+ok 4 - stamp dates and labels
+  ---
+  duration_ms: 0.690183
+  type: 'test'
+  ...
+# Subtest: finds the corners of a rotated sheet
+ok 5 - finds the corners of a rotated sheet
+  ---
+  duration_ms: 22.577269
+  type: 'test'
+  ...
+# Subtest: gives up on an empty picture
+ok 6 - gives up on an empty picture
+  ---
+  duration_ms: 0.319038
+  type: 'test'
+  ...
+# Subtest: homography maps corners exactly
+ok 7 - homography maps corners exactly
+  ---
+  duration_ms: 0.38709
+  type: 'test'
+  ...
+# Subtest: straightening the sheet gives a white page
+ok 8 - straightening the sheet gives a white page
+  ---
+  duration_ms: 25.777105
+  type: 'test'
+  ...
+# Subtest: document mode makes paper white and text dark
+ok 9 - document mode makes paper white and text dark
+  ---
+  duration_ms: 0.555572
+  type: 'test'
+  ...
+# Subtest: helpers
+ok 10 - helpers
+  ---
+  duration_ms: 0.636193
+  type: 'test'
+  ...
+# Subtest: flatten evens out a flash spot
+ok 11 - flatten evens out a flash spot
+  ---
+  duration_ms: 10.455064
+  type: 'test'
+  ...
+# Subtest: sharpness: a blurred picture scores lower
+ok 12 - sharpness: a blurred picture scores lower
+  ---
+  duration_ms: 1.340697
+  type: 'test'
+  ...
+# Subtest: flatten keeps a large dark logo dark
+ok 13 - flatten keeps a large dark logo dark
+  ---
+  duration_ms: 4.904042
+  type: 'test'
+  ...
+# Subtest: autoShot: waits for a still, sharp page and not twice for the same one
+ok 14 - autoShot: waits for a still, sharp page and not twice for the same one
+  ---
+  duration_ms: 0.919878
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 122.243481
+
+> build
+> node build.mjs
+
+built assets/main-CNBU4REF.js, assets/main-ZHBDLCX2.css
