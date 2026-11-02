@@ -73,6 +73,8 @@
   <h3>Endpoints</h3>
   <table class="eps">
     <tbody>
+      <tr><td class="mono">GET /api/metrics</td><td>numbers for a statistics server (admins): Prometheus text, <span class="mono">?format=json</span> or <span class="mono">influx</span>; see <a href="/settings/metrics">Statistics export</a></td></tr>
+      <tr><td class="mono">GET /api/docs/zip</td><td><span class="mono">ids</span> (1,2,3): several documents as one ZIP</td></tr>
       <tr><td class="mono">GET /api/docs</td><td><span class="mono">q</span>, <span class="mono">status</span> (inbox, filed), <span class="mono">year</span>, <span class="mono">month</span>, <span class="mono">tag</span>, <span class="mono">sender</span>, <span class="mono">sort</span> (newest date by default, or added, relevance, sender, amount), <span class="mono">limit</span>, <span class="mono">offset</span></td></tr>
       <tr><td class="mono">GET /api/docs/&#123;id&#125;</td><td>one document with its facts and tags</td></tr>
       <tr><td class="mono">GET /api/docs/&#123;id&#125;/pdf</td><td>the PDF</td></tr>

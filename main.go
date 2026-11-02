@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -44,6 +45,10 @@ type App struct {
 	limiter    *limiter
 	ceremonies ceremonies // passkey sign-ins and registrations in progress
 	updates    updater    // what GitHub said about the newest release
+
+	metricsMu   sync.Mutex // the statistics export: when it last sent, and how that went
+	metricsLast time.Time
+	metricsErr  string
 }
 
 func env(k, def string) string {
@@ -130,6 +135,7 @@ func (a *App) run() {
 	a.jobs.start(ctx)
 	go a.watcher.loop(ctx)
 	go a.housekeeping(ctx)
+	go a.metricsPusher(ctx)
 	go func() {
 		log.Printf("Shoebox %s listening on %s (data: %s, archive: %s)", version, a.cfg.Listen, a.cfg.DataDir, a.cfg.Archive)
 		var err error
@@ -229,6 +235,9 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /api/backups", a.admin(a.handleBackups))
 	mux.HandleFunc("POST /api/backups", a.admin(a.handleBackupNow))
 	mux.HandleFunc("GET /api/stats", a.auth(a.handleStats))
+	mux.HandleFunc("GET /api/metrics", a.handleMetrics) // its own check: admins, also ?token=
+	mux.HandleFunc("POST /api/metrics/push", a.admin(a.handleMetricsPush))
+	mux.HandleFunc("GET /api/metrics/push", a.admin(a.handleMetricsStatus))
 	mux.HandleFunc("GET /api/rules", a.auth(a.handleRules))
 	mux.HandleFunc("POST /api/rules", a.member(a.handleRuleSave))
 	mux.HandleFunc("PUT /api/rules/{id}", a.member(a.handleRuleSave))

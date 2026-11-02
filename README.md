@@ -33,6 +33,7 @@ No Redis, no Celery, no PostgreSQL: one Go binary with a SQLite index, Tesseract
 - **Home and Family.** Every account has a private Home (`archive/home/<username>`) that nobody else sees, admins neither: new scans and uploads land there, and from Review a document moves into Family (`archive/family`) with *Move to …*. The sorting rules, senders and tags of Family also sort what lands in a Home.
 - **Libraries you share.** Separate archives, each in its own folder (another NAS share, or a folder next to the first), with their own tags, senders and rules: a private one, one for the household, one for the company. Each is shared with chosen accounts, who can edit or only read.
 - **Accounts**, **passkeys** for signing in with the phone's or computer's screen lock, and **API tokens** for scripts and network scanners.
+- **Statistics for your own server.** `/api/metrics` in Prometheus/OpenMetrics text, JSON or InfluxDB line protocol (Prometheus, Grafana, VictoriaMetrics, Home Assistant, Uptime Kuma, Telegraf …), or Shoebox sends them every few minutes to a webhook, an InfluxDB or a Pushgateway. The private Homes only show up as their sum.
 - **Database backups** into the archive folder (the NAS) on a button press or every day.
 - Tag colors, statistics for the curious, light and dark, phone and desktop (1080p and up).
 

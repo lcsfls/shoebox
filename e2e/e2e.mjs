@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { startPaperless } from './paperless-mock.mjs';
+import http from 'node:http';
 
 const B = process.env.SB_URL || 'http://127.0.0.1:8080';
 const CODE = process.env.SB_SETUP_CODE;
@@ -491,6 +492,30 @@ try {
   await d.getByRole('button', { name: 'Save', exact: true }).click();
   await d.getByText('Account saved').waitFor();
   if ((await api(d, '/api/me')).user?.name !== 'Anna Beispiel') problems.push('account: the name was not saved');
+
+  // statistics: read in three formats, and sent by Shoebox to a server
+  const prom = await d.evaluate(async () => (await fetch('/api/metrics')).text());
+  if (!/shoebox_documents\{library="Family",status="filed"\} \d/.test(prom) || !prom.includes('library="Homes"')) problems.push('metrics: ' + prom.slice(0, 300));
+  const mj = await api(d, '/api/metrics?format=json');
+  if (!(mj.documents > 0) || !mj.libraries?.Family) problems.push('metrics json: ' + JSON.stringify(mj).slice(0, 300));
+  const received = [];
+  const sink = http.createServer((q, s) => { let b = ''; q.on('data', (c) => (b += c)); q.on('end', () => { received.push({ headers: q.headers, body: b }); s.end('ok'); }); });
+  await new Promise((r) => sink.listen(18002, '127.0.0.1', r));
+  await d.goto(B + '/settings/metrics');
+  await d.getByText('Read by your server').waitFor();
+  await d.getByRole('tab', { name: 'Home Assistant' }).click();
+  await d.getByLabel('Address', { exact: false }).fill('http://127.0.0.1:18002/write');
+  await d.getByLabel('Format').selectOption('influx');
+  await d.getByLabel('Extra header', { exact: false }).fill('Authorization: Token e2e');
+  await d.getByRole('button', { name: 'Save', exact: true }).click();
+  await d.getByText(/Shoebox sends the numbers every/).waitFor();
+  await d.getByRole('button', { name: 'Send now' }).click();
+  await d.getByText('Sent. The server took it.').waitFor();
+  await shot(d, '48-settings-metrics', true);
+  const got = received.at(-1);
+  if (!got || got.headers.authorization !== 'Token e2e' || !got.body.includes('shoebox_documents,library=Family,status=filed value=')) problems.push('metrics push: ' + JSON.stringify(got).slice(0, 300));
+  sink.close();
+  log('metrics ok');
 
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {
     await d.goto(B + '/settings/' + tab);

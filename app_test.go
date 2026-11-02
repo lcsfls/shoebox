@@ -11,6 +11,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -524,7 +525,10 @@ func testHTTP(t *testing.T, a *App) (doFunc, func(path string, body any) *http.C
 		}
 		defer res.Body.Close()
 		var raw any
-		json.NewDecoder(res.Body).Decode(&raw)
+		rb, _ := io.ReadAll(res.Body)
+		if json.Unmarshal(rb, &raw) != nil {
+			raw = map[string]any{"_raw": string(rb)} // text answers (metrics)
+		}
 		m, _ := raw.(map[string]any)
 		l, _ := raw.([]any)
 		return res.StatusCode, m, l
@@ -814,5 +818,73 @@ func TestHomes(t *testing.T) {
 	}
 	if a.homeOwner(benHome) != 0 || a.homeLib(2) != 0 {
 		t.Error("ben's Home is left over")
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	a := testApp(t)
+	do, session := testHTTP(t, a)
+	anna := session("/api/setup", map[string]string{"code": a.setupCode, "username": "anna", "password": "long-password-1"})
+	if code, out, _ := do("POST", "/api/users", map[string]any{"username": "ben", "password": "long-password-2", "role": "member"}, anna, 0); code != 200 {
+		t.Fatalf("add ben: %d %v", code, out)
+	}
+	ben := session("/api/login", map[string]string{"username": "ben", "password": "long-password-2"})
+	a.insertDoc(NewDoc{Status: "filed", Path: "2026/01/a.pdf", Title: "A", Pages: 2, Size: 1000, Source: "upload", LibraryID: 1})
+	a.insertDoc(NewDoc{Status: "inbox", Path: "b.pdf", Title: "B", Pages: 1, Size: 500, Source: "scan", LibraryID: a.homeLib(2)})
+
+	_, out, _ := do("GET", "/api/metrics", nil, anna, 0)
+	prom, _ := out["_raw"].(string)
+	for _, want := range []string{`shoebox_documents{library="Family",status="filed"} 1`, `shoebox_documents{library="Homes",status="inbox"} 1`,
+		`shoebox_pages{library="Family"} 2`, "# TYPE shoebox_ocr_seconds_total counter", `shoebox_info{version="`} {
+		if !strings.Contains(prom, want) {
+			t.Errorf("prometheus: no %q in\n%s", want, prom)
+		}
+	}
+	if strings.Contains(prom, `library="Home"`) {
+		t.Error("a single Home shows up")
+	}
+	_, js, _ := do("GET", "/api/metrics?format=json", nil, anna, 0)
+	if js["documents"] != 2.0 || js["inbox"] != 1.0 || js["libraries"].(map[string]any)["Family"].(map[string]any)["filed"] != 1.0 {
+		t.Errorf("json: %v", js)
+	}
+	_, inf, _ := do("GET", "/api/metrics?format=influx", nil, anna, 0)
+	if s, _ := inf["_raw"].(string); !strings.Contains(s, "shoebox_documents,library=Family,status=filed value=1 ") {
+		t.Errorf("influx:\n%s", s)
+	}
+	if code, _, _ := do("GET", "/api/metrics", nil, ben, 0); code != 403 {
+		t.Errorf("a member read the metrics: %d", code)
+	}
+	// a read-only token may go into the URL, a full one not
+	_, ro, _ := do("POST", "/api/tokens", map[string]any{"name": "grafana", "readonly": true}, anna, 0)
+	_, rw, _ := do("POST", "/api/tokens", map[string]any{"name": "script"}, anna, 0)
+	if code, _, _ := do("GET", "/api/metrics?token="+ro["token"].(string), nil, nil, 0); code != 200 {
+		t.Errorf("read-only token in the URL: %d", code)
+	}
+	if code, _, _ := do("GET", "/api/metrics?token="+rw["token"].(string), nil, nil, 0); code != 403 {
+		t.Errorf("full token in the URL: %d", code)
+	}
+
+	// pushing: the body arrives in the chosen format, with the header
+	got := make(chan *http.Request, 1)
+	var gotBody string
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		got <- r
+	}))
+	defer sink.Close()
+	if code, out, _ := do("POST", "/api/metrics/push", map[string]any{"url": sink.URL + "/write", "format": "influx", "header": "Authorization: Token abc"}, anna, 0); code != 200 {
+		t.Fatalf("push: %d %v", code, out)
+	}
+	r := <-got
+	if r.Header.Get("Authorization") != "Token abc" || !strings.Contains(gotBody, "shoebox_pages,library=Family value=2 ") {
+		t.Errorf("pushed %q with %q", gotBody, r.Header.Get("Authorization"))
+	}
+	// the header is a secret: saved, but not sent back
+	s := a.settings()
+	s.Metrics = MetricsPush{URL: sink.URL, Format: "json", Minutes: 5, Header: "X-Key: secret"}
+	a.saveSettings(s)
+	if _, out, _ := do("GET", "/api/settings", nil, ben, 0); out["metrics_header_set"] != true || strings.Contains(fmt.Sprint(out), "secret") {
+		t.Errorf("settings show the header: %v", out["settings"])
 	}
 }

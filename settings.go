@@ -19,22 +19,23 @@ type AISettings struct {
 }
 
 type Settings struct {
-	Pattern      string     `json:"pattern"`       // file name pattern inside the archive
-	Languages    string     `json:"languages"`     // Tesseract languages, e.g. deu+eng
-	Workers      int        `json:"workers"`       // documents processed at the same time
-	WatchMinutes int        `json:"watch_minutes"` // look for new files in the archive every N minutes, 0 = off
-	WatchOCR     bool       `json:"watch_ocr"`     // add a text layer to PDFs found in the archive that have none
-	Learn        bool       `json:"learn"`         // suggest tags and sender from similar filed documents
-	BackupDaily  bool       `json:"backup_daily"`  // copy the database into the archive folder once a day
-	BackupKeep   int        `json:"backup_keep"`   // how many backups to keep
-	StampLang    string     `json:"stamp_lang"`    // de | en: the stamps offered first
-	StampIn      string     `json:"stamp_in"`      // German label of the "received" stamp
-	StampPaid    string     `json:"stamp_paid"`    // German label of the "paid" stamp
-	StampInEn    string     `json:"stamp_in_en"`   // English labels
-	StampPaidEn  string     `json:"stamp_paid_en"`
-	UpdateAuto   bool       `json:"update_auto"` // install new releases by themselves
-	UpdateHour   int        `json:"update_hour"` // at this hour of the night
-	AI           AISettings `json:"ai"`
+	Pattern      string      `json:"pattern"`       // file name pattern inside the archive
+	Languages    string      `json:"languages"`     // Tesseract languages, e.g. deu+eng
+	Workers      int         `json:"workers"`       // documents processed at the same time
+	WatchMinutes int         `json:"watch_minutes"` // look for new files in the archive every N minutes, 0 = off
+	WatchOCR     bool        `json:"watch_ocr"`     // add a text layer to PDFs found in the archive that have none
+	Learn        bool        `json:"learn"`         // suggest tags and sender from similar filed documents
+	BackupDaily  bool        `json:"backup_daily"`  // copy the database into the archive folder once a day
+	BackupKeep   int         `json:"backup_keep"`   // how many backups to keep
+	StampLang    string      `json:"stamp_lang"`    // de | en: the stamps offered first
+	StampIn      string      `json:"stamp_in"`      // German label of the "received" stamp
+	StampPaid    string      `json:"stamp_paid"`    // German label of the "paid" stamp
+	StampInEn    string      `json:"stamp_in_en"`   // English labels
+	StampPaidEn  string      `json:"stamp_paid_en"`
+	UpdateAuto   bool        `json:"update_auto"` // install new releases by themselves
+	UpdateHour   int         `json:"update_hour"` // at this hour of the night
+	AI           AISettings  `json:"ai"`
+	Metrics      MetricsPush `json:"metrics"` // send the statistics to a server
 }
 
 func defaultSettings() Settings {
@@ -43,6 +44,7 @@ func defaultSettings() Settings {
 		Languages:    "deu+eng",
 		Workers:      1,
 		WatchMinutes: 5,
+		Metrics:      MetricsPush{Format: "json", Minutes: 5},
 		WatchOCR:     true,
 		Learn:        true,
 		BackupKeep:   14,
@@ -77,13 +79,17 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	s := a.settings()
 	hasKey := s.AI.APIKey != ""
 	s.AI.APIKey = ""
-	writeJSON(w, 200, map[string]any{"settings": s, "ai_key_set": hasKey, "languages": tesseractLanguages(), "default_prompt": defaultOCRPrompt})
+	// the export's header holds a password or token: write-only as well
+	hasHeader := s.Metrics.Header != ""
+	s.Metrics.Header = ""
+	writeJSON(w, 200, map[string]any{"settings": s, "ai_key_set": hasKey, "metrics_header_set": hasHeader, "languages": tesseractLanguages(), "default_prompt": defaultOCRPrompt})
 }
 
 func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Settings
-		ClearKey bool `json:"clear_key"`
+		ClearKey    bool `json:"clear_key"`
+		ClearHeader bool `json:"clear_metrics_header"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -117,6 +123,18 @@ func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.ClearKey {
 		s.AI.APIKey = ""
+	}
+	s.Metrics.URL = clean(s.Metrics.URL, 500)
+	s.Metrics.Minutes = min(max(s.Metrics.Minutes, 1), 1440)
+	if s.Metrics.Format != "influx" && s.Metrics.Format != "prometheus" {
+		s.Metrics.Format = "json"
+	}
+	s.Metrics.Header = clean(s.Metrics.Header, 1000)
+	if s.Metrics.Header == "" {
+		s.Metrics.Header = old.Metrics.Header
+	}
+	if in.ClearHeader {
+		s.Metrics.Header = ""
 	}
 	if err := a.saveSettings(s); err != nil {
 		fail(w, 500, err.Error())
