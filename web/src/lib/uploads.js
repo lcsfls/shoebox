@@ -1,6 +1,7 @@
 // Uploading files (from the picker or dropped anywhere on the page).
 import { upload } from './api.js';
-import { toast, counts, showIntake } from './stores.js';
+import { toast, counts, intakeQuery, intakeLibrary, libraries } from './stores.js';
+import { get } from 'svelte/store';
 import { writable } from 'svelte/store';
 
 export const uploading = writable(0); // progress 0..1, 0 = idle
@@ -16,9 +17,9 @@ export async function uploadFiles(list) {
   files.forEach((f) => fd.append('files', f, f.name));
   uploading.set(0.01);
   try {
-    const r = await upload('/api/upload', fd, (p) => uploading.set(Math.max(p, 0.01)));
-    showIntake(r.library);
-    toast(files.length === 1 ? 'Uploaded. Reading the text …' : `${files.length} files uploaded. Reading the text …`);
+    await upload('/api/upload' + intakeQuery(), fd, (p) => uploading.set(Math.max(p, 0.01)));
+    const into = get(libraries).length > 1 ? ` into “${get(intakeLibrary)?.name}”` : '';
+    toast(files.length === 1 ? `Uploaded${into}. Reading the text …` : `${files.length} files uploaded${into}. Reading the text …`);
     counts.update((c) => ({ ...c, busy: c.busy + files.length }));
     return true;
   } catch (err) {

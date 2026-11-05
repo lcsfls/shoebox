@@ -1,9 +1,9 @@
 <script>
   import { onMount, tick } from 'svelte';
   import { upload } from '../lib/api.js';
-  import { toast, counts, libraries, intakeLibrary, showIntake } from '../lib/stores.js';
+  import { toast, counts, libraries, library, intakeLibrary, intakeQuery } from '../lib/stores.js';
   import { navigate } from '../lib/router.js';
-  import { detectQuad, fullQuad, sharpness, toGray, autoShot } from '../lib/scan.js';
+  import { detectQuad, fullQuad, sharpness, toGray, autoShot, loupeSpot } from '../lib/scan.js';
   import { straighten } from '../lib/straighten.js';
   import Icon from '../components/Icon.svelte';
 
@@ -45,6 +45,12 @@
     try { return localStorage.getItem('sb-filter') || 'doc'; } catch { return 'doc'; }
   }
   $effect(() => { try { localStorage.setItem('sb-filter', filter); } catch {} });
+  // the hand that drags the corners: the magnifier goes to the other side
+  let hand = $state(readHand());
+  function readHand() {
+    try { return localStorage.getItem('sb-hand') === 'left' ? 'left' : 'right'; } catch { return 'right'; }
+  }
+  $effect(() => { try { localStorage.setItem('sb-hand', hand); } catch {} });
   function readAuto() {
     try { return localStorage.getItem('sb-autoshot') !== 'off'; } catch { return true; }
   }
@@ -317,19 +323,72 @@
     openCrop(c, [q[3], q[0], q[1], q[2]]);
   }
 
+  // Dragging a corner: it keeps its distance to the finger (grab beside it,
+  // not on it), and a magnifier shows it enlarged, away from the hand.
+  const LOUPE = 132; // css px
+  const ZOOM = 2.5; // relative to the picture on screen
+  let grab = { dx: 0, dy: 0 };
+  let loupe = $state(null); // { x, y } of the magnifier while dragging
+  let loupeCanvas = $state();
   function handleDown(i, e) {
+    const r = e.currentTarget.ownerSVGElement.getBoundingClientRect();
+    const p = shot.quad[i];
+    grab = { dx: p.x - (e.clientX - r.left) / r.width, dy: p.y - (e.clientY - r.top) / r.height };
     dragging = i;
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
+    showLoupe(e);
   }
   function handleMove(e) {
     if (dragging < 0) return;
     const r = e.currentTarget.getBoundingClientRect();
-    const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width + grab.dx));
+    const y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height + grab.dy));
     shot.quad[dragging] = { x, y };
+    showLoupe(e);
   }
-  function handleUp() { dragging = -1; }
+  function handleUp() { dragging = -1; loupe = null; }
+
+  let loupeFrame = 0;
+  function showLoupe(e) {
+    loupe = loupeSpot({ x: e.clientX, y: e.clientY }, LOUPE, hand, innerWidth, innerHeight);
+    cancelAnimationFrame(loupeFrame);
+    loupeFrame = requestAnimationFrame(drawLoupe);
+  }
+  function drawLoupe() {
+    if (!loupeCanvas || !shot || dragging < 0) return;
+    const src = shot.canvas, W = src.width, H = src.height;
+    const dpr = devicePixelRatio || 1;
+    const L = Math.round(LOUPE * dpr);
+    if (loupeCanvas.width !== L) { loupeCanvas.width = L; loupeCanvas.height = L; }
+    const ctx = loupeCanvas.getContext('2d');
+    const q = shot.quad[dragging];
+    const cx = q.x * (W - 1), cy = q.y * (H - 1);
+    const half = LOUPE / 2 / ((cropView.w / W) * ZOOM); // picture pixels from the middle to the edge
+    const k = L / (2 * half); // picture pixels → magnifier pixels
+    const ox = cx - half, oy = cy - half;
+    ctx.fillStyle = '#14110D';
+    ctx.fillRect(0, 0, L, L);
+    // the part of the picture inside (beyond its edge stays dark, so a corner at the edge is still in the middle)
+    const sx = Math.max(0, ox), sy = Math.max(0, oy), ex = Math.min(W, cx + half), ey = Math.min(H, cy + half);
+    if (ex > sx && ey > sy) ctx.drawImage(src, sx, sy, ex - sx, ey - sy, (sx - ox) * k, (sy - oy) * k, (ex - sx) * k, (ey - sy) * k);
+    // the page's edges and the corner
+    ctx.lineWidth = 2 * dpr;
+    ctx.strokeStyle = '#F2B33D';
+    ctx.beginPath();
+    shot.quad.forEach((p, i) => {
+      const x = (p.x * (W - 1) - ox) * k, y = (p.y * (H - 1) - oy) * k;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.closePath();
+    ctx.stroke();
+    ctx.strokeStyle = 'rgb(255 255 255 / 0.9)';
+    ctx.lineWidth = 1 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(L / 2, L / 2 - 14 * dpr); ctx.lineTo(L / 2, L / 2 + 14 * dpr);
+    ctx.moveTo(L / 2 - 14 * dpr, L / 2); ctx.lineTo(L / 2 + 14 * dpr, L / 2);
+    ctx.stroke();
+  }
 
   // The page is straightened in the background: the camera is back at once
   // for the next one.
@@ -426,10 +485,9 @@
     pages.forEach((p, i) => fd.append('pages', p.blob, `page-${i + 1}.jpg`));
     sending = 0.01;
     try {
-      const r = await upload('/api/scan', fd, (p) => (sending = Math.max(p, 0.01)));
-      showIntake(r.library);
+      await upload('/api/scan' + intakeQuery(), fd, (p) => (sending = Math.max(p, 0.01)));
       counts.update((c) => ({ ...c, busy: c.busy + 1 }));
-      toast(`Scan sent (${pages.length} page${pages.length === 1 ? '' : 's'}). Reading the text …`);
+      toast(`Scan sent (${pages.length} page${pages.length === 1 ? '' : 's'})${$libraries.length > 1 ? ` into “${$intakeLibrary?.name}”` : ''}. Reading the text …`);
       stopCamera();
       navigate('/');
     } catch (e) {
@@ -455,7 +513,13 @@
 <div class="scan">
   <header class="bar">
     <button class="round" onclick={close} aria-label="Close the scanner"><Icon name="close" /></button>
-    <span class="title">{mode === 'crop' ? 'Adjust the corners' + (editing >= 0 ? ` of page ${editing + 1}` : '') : `Page ${pages.length + 1}`}{#if $libraries.length > 1}<span class="into">into {$intakeLibrary?.name}</span>{/if}</span>
+    <span class="title">{mode === 'crop' ? 'Adjust the corners' + (editing >= 0 ? ` of page ${editing + 1}` : '') : `Page ${pages.length + 1}`}{#if $libraries.length > 1}
+      <!-- where the scan goes: the library picked at the top left, changed here as well -->
+      <label class="into">into {$intakeLibrary?.name} ▾
+        <select value={$intakeLibrary?.id} onchange={(e) => library.set(Number(e.currentTarget.value))} aria-label="Scan into library">
+          {#each $libraries.filter((l) => l.role === 'editor') as l (l.id)}<option value={l.id}>{l.name}</option>{/each}
+        </select>
+      </label>{/if}</span>
     {#if torchAvailable && mode === 'camera'}
       <button class="round" class:on={torch} onclick={toggleTorch} aria-pressed={torch} aria-label={torch ? 'Turn the light off' : 'Turn the light on'}><Icon name="flash" /></button>
     {:else}
@@ -495,7 +559,12 @@
         </svg>
       </div>
       {#if mode === 'busy'}<p class="hint-pill">Straightening …</p>{/if}
+      <button class="auto-chip hand-chip" onclick={() => (hand = hand === 'right' ? 'left' : 'right')} aria-label="Magnifier for the {hand === 'right' ? 'right' : 'left'} hand; switch hands"
+        title="The magnifier appears on the other side of the hand that drags">{hand === 'right' ? 'Right hand' : 'Left hand'}</button>
     </div>
+    {#if loupe}
+      <canvas class="loupe" bind:this={loupeCanvas} style="left:{loupe.x}px;top:{loupe.y}px;width:{LOUPE}px;height:{LOUPE}px" aria-hidden="true"></canvas>
+    {/if}
   {:else}
     <div class="viewport fallback">
       <div class="fallback-box">
@@ -576,7 +645,8 @@
   .scan { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; background: #14110D; color: #fff; }
   .bar { display: flex; align-items: center; justify-content: space-between; padding: max(12px, env(safe-area-inset-top)) 14px 8px; }
   .title { font-weight: 600; display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
-  .into { font-weight: 400; font-size: 0.78rem; opacity: 0.75; }
+  .into { position: relative; font-weight: 400; font-size: 0.78rem; opacity: 0.8; cursor: pointer; }
+  .into select { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; font-size: 16px; }
   .round { width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgb(255 255 255 / 0.14); color: #fff; display: grid; place-items: center; cursor: pointer; }
   .placeholder { background: none; }
   .round.on { background: #F2B33D; color: #2B2620; }
@@ -590,6 +660,8 @@
   .handle { fill: rgb(242 179 61 / 0.25); stroke: #F2B33D; stroke-width: 3; cursor: grab; }
   .hint-pill { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: rgb(20 17 13 / 0.75); padding: 8px 14px; border-radius: 999px; font-size: 0.88rem; white-space: nowrap; max-width: 92%; overflow: hidden; text-overflow: ellipsis; }
   .hint-pill.ready { background: rgb(36 110 58 / 0.85); }
+  .loupe { position: fixed; z-index: 5; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 6px 24px rgb(0 0 0 / 0.5); pointer-events: none; background: #14110D; }
+  .auto-chip.hand-chip { left: 12px; right: auto; }
   .auto-chip { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 14px; border: 0; border-radius: 999px; background: rgb(20 17 13 / 0.7); color: #fff; font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
   .auto-chip .dot { width: 9px; height: 9px; border-radius: 50%; background: rgb(255 255 255 / 0.35); }
   .auto-chip.on .dot { background: #4CBB6C; }

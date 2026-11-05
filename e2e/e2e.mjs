@@ -272,7 +272,7 @@ try {
   await d.getByText('Drop to upload').waitFor();
   await shot(d, '39-drop');
   await d.dispatchEvent('main', 'drop', { dataTransfer: dt });
-  await d.getByText('Uploaded. Reading the text').waitFor();
+  await d.getByText(/Uploaded( into “[^”]+”)?\. Reading the text/).waitFor();
   await until(d, async () => (await api(d, '/api/jobs')).some((j) => j.name === 'Dropped-Brief.pdf' && (j.state === 'done' || j.state === 'failed')), 'the dropped file');
   const jobsNow = await api(d, '/api/jobs');
   if (!jobsNow.some((j) => j.name === 'Dropped-Brief.pdf' && j.state === 'done')) problems.push(`drop: ${JSON.stringify(jobsNow.map((j) => [j.name, j.state, j.error]))}`);
@@ -475,6 +475,10 @@ try {
   await d.getByRole('button', { name: 'Move to Privat' }).hover();
   await d.mouse.up();
   await d.getByText('Moved 3 documents to “Privat”').waitFor();
+  // the counts in the library menu follow without reloading
+  await until(d, async () => (await api(d, '/api/libraries')).find((l) => l.name === 'Privat')?.docs >= 3 &&
+    (await d.evaluate(async () => { const b = document.querySelector('aside button[aria-haspopup="listbox"]'); b.click(); await new Promise((r) => setTimeout(r, 200));
+      const t = [...document.querySelectorAll('[role="option"]')].find((o) => o.textContent.includes('Privat'))?.textContent || ''; b.click(); return /\b[3-9]\d*\s*$/.test(t.trim()); })), 'the library menu to count the moved documents');
   for (const id of picked3) {
     const m = (await api(d, `/api/docs/${id}`)).doc;
     if (m?.library_id !== privId) problems.push(`drag selected: document ${id} is in library ${m?.library_id}`);
@@ -595,7 +599,25 @@ try {
   await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await p.mouse.down();
   await p.mouse.move(box.x + 30, box.y + 40, { steps: 5 });
+  // a magnifier above the finger, away from the hand: left of it for the right hand …
+  const lp = await p.locator('canvas.loupe').boundingBox();
+  // (at a corner on the left there is no room beside it: then right above the finger)
+  if (!lp || lp.y + lp.height > box.y + 40 || (lp.x > 8 && lp.x + lp.width > box.x + 30)) problems.push(`loupe (right hand): ${JSON.stringify(lp)} for a finger at ${box.x + 30},${box.y + 40}`);
+  await shot(p, '26b-phone-scan-loupe');
   await p.mouse.up();
+  if (await p.locator('canvas.loupe').count()) problems.push('loupe: still there after letting go');
+  // … right of it for the left hand
+  await p.getByRole('button', { name: /Magnifier for the right hand/ }).click();
+  const h2 = p.locator('circle.handle').nth(1);
+  const box2 = await h2.boundingBox();
+  await p.mouse.move(box2.x + box2.width / 2, box2.y + box2.height / 2);
+  await p.mouse.down();
+  await p.mouse.move(box2.x + box2.width / 2 - 20, box2.y + box2.height / 2 + 120, { steps: 5 });
+  const lp2 = await p.locator('canvas.loupe').boundingBox();
+  const fx = box2.x + box2.width / 2 - 20, fy = box2.y + box2.height / 2 + 120;
+  if (!lp2 || lp2.y + lp2.height > fy || (lp2.x < fx && lp2.x + lp2.width < 390 - 8)) problems.push(`loupe (left hand): ${JSON.stringify(lp2)} for a finger at ${fx},${fy}`);
+  await p.mouse.up();
+  await p.getByRole('button', { name: /Magnifier for the left hand/ }).click();
   await p.getByRole('button', { name: 'Use page' }).click();
   await p.locator('.strip .pg').first().waitFor();
   await p.getByRole('button', { name: 'Take photo' }).click();

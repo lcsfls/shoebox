@@ -108,7 +108,8 @@
     try {
       await api.del(`/api/docs/${id}`);
       toast('Deleted');
-      if (embedded) { dispatchEvent(new CustomEvent('sb-doc-moved', { detail: Number(id) })); onclose?.(); }
+      dispatchEvent(new CustomEvent('sb-doc-moved', { detail: Number(id) })); // gone from the list and the counts
+      if (embedded) onclose?.();
       else history.length > 1 ? history.back() : navigate('/archive', true);
     } catch (err) {
       toast(err.message, 'error');

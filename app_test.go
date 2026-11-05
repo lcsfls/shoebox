@@ -778,6 +778,7 @@ func TestHomes(t *testing.T) {
 	if code != 200 || int64(out["library"].(float64)) != annaHome {
 		t.Fatalf("scan: %d %v", code, out)
 	}
+
 	a.jobs.run(context.Background(), <-a.jobs.queue)
 	var j Job
 	for _, x := range a.jobs.snapshot() {
@@ -787,6 +788,16 @@ func TestHomes(t *testing.T) {
 	if d == nil || d.LibraryID != annaHome || d.Status != "inbox" || d.Rule != "Stadtwerke" || d.Sender != "Stadtwerke Musterstadt" {
 		t.Fatalf("scanned: %+v (%s)", d, j.Error)
 	}
+	// the library picked in the app (?library=) wins over the Home; one that can't be added to is refused
+	if code, out, _ := do("POST", "/api/scan?library=1", rawBody{mw.FormDataContentType(), mb.Bytes()}, anna, annaHome); code != 200 || out["library"] != 1.0 {
+		t.Errorf("scan into Family: %d %v", code, out)
+	} else {
+		<-a.jobs.queue // not run here
+	}
+	if code, _, _ := do("POST", fmt.Sprintf("/api/scan?library=%d", benHome), rawBody{mw.FormDataContentType(), mb.Bytes()}, anna, 0); code != 403 {
+		t.Errorf("scan into ben's Home: %d", code)
+	}
+
 	// shared with Family from Review, though Family has scans of its own (they keep no source hash)
 	a.insertDoc(NewDoc{Status: "inbox", Path: "other-scan.pdf", Title: "Another scan", Source: "scan", FileSHA: "abc", LibraryID: 1})
 	if code, out, _ := do("POST", fmt.Sprintf("/api/docs/%d/move", d.ID), map[string]any{"library": 1}, anna, annaHome); code != 200 {

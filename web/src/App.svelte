@@ -50,14 +50,15 @@
     }
   }
 
-  // inbox badge and "working" indicator
+  // inbox badge, "working" indicator and the document counts in the library menu
   let timer;
   async function poll() {
     clearTimeout(timer);
     if ($user) {
       try {
-        const o = await api.get('/api/overview');
+        const [o, libs] = await Promise.all([api.get('/api/overview'), api.get('/api/libraries')]);
         counts.set({ inbox: o.inbox, busy: o.busy, filed: o.filed, missing: o.missing });
+        setLibraries(libs);
       } catch {}
     }
     timer = setTimeout(poll, $counts.busy ? 2500 : 15000);
@@ -78,7 +79,11 @@
     loadMe().then(poll);
     const onVis = () => document.visibilityState === 'visible' && poll();
     document.addEventListener('visibilitychange', onVis);
-    return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVis); };
+    // documents moved to another library: the counts at once (several moves count once)
+    let moved;
+    const onMoved = () => { clearTimeout(moved); moved = setTimeout(poll, 300); };
+    addEventListener('sb-doc-moved', onMoved);
+    return () => { clearTimeout(timer); clearTimeout(moved); document.removeEventListener('visibilitychange', onVis); removeEventListener('sb-doc-moved', onMoved); };
   });
 
   let path = $derived($route.path);

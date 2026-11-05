@@ -363,15 +363,23 @@ func imagesOnly(name string, head []byte) (string, bool) {
 	return ext, ok && ext != ".pdf"
 }
 
-// intakeLib: where new scans and uploads go. Into the account's own Home,
+// intakeLib: where new scans and uploads go: the library picked for that in
+// the app (?library=), otherwise the account's own Home,
 // to be looked at there and shared with Family from Review; ?library=
 // picks another one (scripts, the API).
 func (a *App) intakeLib(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	u := userFrom(r)
-	if r.URL.Query().Get("library") == "" {
-		if home := a.homeLib(u.ID); home > 0 && a.libRole(u, home) == "editor" {
-			return home, true
+	// the library picked for scanning (the app sends it), ahead of the one looked at
+	if v := r.URL.Query().Get("library"); v != "" {
+		id, _ := strconv.ParseInt(v, 10, 64)
+		if id <= 0 || a.libRole(u, id) != "editor" {
+			fail(w, 403, "You can't add documents to that library.")
+			return 0, false
 		}
+		return id, true
+	}
+	if home := a.homeLib(u.ID); home > 0 && a.libRole(u, home) == "editor" {
+		return home, true
 	}
 	return a.currentLib(w, r, true)
 }

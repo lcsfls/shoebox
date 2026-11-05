@@ -384,3 +384,19 @@ export function enhance(px, mode, w = 0, h = 0) {
   }
   return px;
 }
+
+/**
+ * Where the magnifier goes while a corner is dragged: above the finger and
+ * away from the hand (right hand: to the left, left hand: to the right), so
+ * the finger never covers it. Without room on that side it slides in over
+ * the finger's other side, still above; without room above, below.
+ * finger: {x, y} in the window; returns the box's top left corner.
+ */
+export function loupeSpot(finger, size, hand, vw, vh, gap = 28) {
+  let x = hand === 'left' ? finger.x + gap : finger.x - size - gap;
+  let y = finger.y - size - gap;
+  if (y < 8) y = finger.y + gap + 24; // below, past the fingertip
+  x = Math.min(Math.max(8, x), vw - size - 8);
+  y = Math.min(Math.max(8, y), vh - size - 8);
+  return { x, y };
+}

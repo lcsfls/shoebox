@@ -3,7 +3,7 @@
   import { api } from '../lib/api.js';
   import { uploadFiles, uploading } from '../lib/uploads.js';
   import { dragging } from '../lib/drop.js';
-  import { toast, counts, canAdd } from '../lib/stores.js';
+  import { toast, counts, canAdd, intakeLibrary, libraries } from '../lib/stores.js';
   import LibrarySwitch from '../components/LibrarySwitch.svelte';
   import { fly } from 'svelte/transition';
   import { motion } from '../lib/motion.js';
@@ -52,7 +52,7 @@
   <div class="actions">
     <a class="scan" href="/scan">
       <span class="scan-icon"><Icon name="scan" size={30} /></span>
-      <span class="scan-text"><strong>Scan a document</strong><span>Several pages, straightened automatically</span></span>
+      <span class="scan-text"><strong>Scan a document</strong><span>Several pages, straightened automatically{#if $libraries.length > 1} · into {$intakeLibrary?.name}{/if}</span></span>
     </a>
     <button class="btn up" class:hover={$dragging} onclick={() => fileInput.click()} disabled={$uploading > 0}>
       <Icon name="upload" />

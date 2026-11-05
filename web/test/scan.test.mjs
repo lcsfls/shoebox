@@ -160,3 +160,18 @@ test('autoShot: waits for a still, sharp page and not twice for the same one', a
   a.reset(true);
   assert.equal(run(10, q, 480, page), 'shoot');
 });
+
+test('loupeSpot: above the finger, away from the hand, inside the window', async () => {
+  const { loupeSpot } = await import('../src/lib/scan.js');
+  const L = 128, vw = 400, vh = 800;
+  const right = loupeSpot({ x: 300, y: 500 }, L, 'right', vw, vh);
+  assert.ok(right.x + L <= 300 && right.y + L <= 500, JSON.stringify(right)); // up and left of a right hand's finger
+  const left = loupeSpot({ x: 100, y: 500 }, L, 'left', vw, vh);
+  assert.ok(left.x >= 100 && left.y + L <= 500, JSON.stringify(left)); // up and right of a left hand's finger
+  // a left hand at a right corner: no room on the right, so it stays above, inside the window
+  const edge = loupeSpot({ x: 390, y: 500 }, L, 'left', vw, vh);
+  assert.ok(edge.x + L <= vw - 8 && edge.y + L <= 500, JSON.stringify(edge));
+  // at the top: below the fingertip
+  const top = loupeSpot({ x: 200, y: 40 }, L, 'right', vw, vh);
+  assert.ok(top.y > 40, JSON.stringify(top));
+});
