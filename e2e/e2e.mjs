@@ -517,6 +517,27 @@ try {
   sink.close();
   log('metrics ok');
 
+  // the library menu: find one by typing, or make a new one from it
+  await d.goto(B + '/archive');
+  const libMenu = d.locator('aside button[aria-haspopup="listbox"]');
+  await libMenu.click();
+  await d.keyboard.type('priv');
+  await d.getByRole('option', { name: /Privat/ }).waitFor();
+  if (await d.getByRole('option', { name: /Family/ }).count()) problems.push('library menu: the search did not filter');
+  await d.keyboard.press('Control+A');
+  await d.keyboard.type('Belege 2026');
+  await d.getByRole('option', { name: 'Create “Belege 2026”' }).waitFor();
+  await shot(d, '49-library-menu-create');
+  await d.keyboard.press('Enter');
+  await d.getByText('Library “Belege 2026” created', { exact: false }).waitFor();
+  await until(d, async () => (await libMenu.innerText()).includes('Belege 2026'), 'the new library picked');
+  if (!fs.existsSync(path.join(ARCHIVE, 'belege-2026'))) problems.push('library menu: archive/belege-2026 not created');
+  await libMenu.click();
+  await d.keyboard.type('home');
+  await d.keyboard.press('Enter');
+  await until(d, async () => (await libMenu.innerText()).includes('Home'), 'back in Home');
+  log('library menu ok');
+
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {
     await d.goto(B + '/settings/' + tab);
     await d.waitForTimeout(700);

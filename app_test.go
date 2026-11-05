@@ -796,6 +796,17 @@ func TestHomes(t *testing.T) {
 		t.Errorf("ben can't see it in Family: %d %v", code, out)
 	}
 
+	// a library made from the library menu: only a name, the folder follows it
+	for i, want := range []string{"muttis-buero", "muttis-buero-2"} {
+		code, out, _ := do("POST", "/api/libraries", map[string]any{"name": "Muttis Büro"}, anna, 0)
+		if code != 200 {
+			t.Fatalf("create %d: %d %v", i, code, out)
+		}
+		if p, _ := a.libPath(int64(out["id"].(float64))); p != filepath.Join(a.cfg.Archive, want) {
+			t.Errorf("new library in %s, want %s", p, want)
+		}
+	}
+
 	// renaming oneself: the Home folder follows, a taken name is refused
 	if code, _, _ := do("PATCH", "/api/account", map[string]any{"username": "ben"}, anna, 0); code != 400 {
 		t.Errorf("took ben's username: %d", code)

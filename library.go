@@ -429,6 +429,9 @@ func (a *App) handleLibraryCreate(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "Give the library a name.")
 		return
 	}
+	if strings.TrimSpace(in.Path) == "" {
+		in.Path = a.freeLibraryFolder(name) // made from the library menu: just a name
+	}
 	p, err := a.checkLibraryPath(in.Path, 0)
 	if err != nil {
 		fail(w, 400, err.Error())
@@ -663,4 +666,31 @@ func (a *App) moveHomeFolder(userID int64, oldName, newName string) {
 		return
 	}
 	a.db.Exec(`UPDATE libraries SET path = ? WHERE id = ?`, next, home)
+}
+
+var reSlug = regexp.MustCompile(`[^a-z0-9]+`)
+
+// freeLibraryFolder: archive/<name> for a new library (umlauts spelled
+// out), with -2, -3 … when a library or a file already has that name.
+func (a *App) freeLibraryFolder(name string) string {
+	slug := strings.NewReplacer("ä", "ae", "ö", "oe", "ü", "ue", "ß", "ss").Replace(strings.ToLower(name))
+	slug = strings.Trim(reSlug.ReplaceAllString(slug, "-"), "-")
+	if slug == "" || slug == "home" || reYearFolder.MatchString(slug) {
+		slug = "library-" + slug
+		slug = strings.TrimSuffix(slug, "-")
+	}
+	used := map[string]bool{}
+	for _, l := range a.allLibraries() {
+		used[filepath.Clean(l.Path)] = true
+	}
+	root := filepath.Clean(a.cfg.Archive)
+	for i := 1; ; i++ {
+		p := filepath.Join(root, slug)
+		if i > 1 {
+			p = fmt.Sprintf("%s-%d", p, i)
+		}
+		if _, err := os.Stat(p); !used[p] && err != nil {
+			return p
+		}
+	}
 }
