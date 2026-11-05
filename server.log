@@ -1,0 +1,5 @@
+2026/11/05 19:15:29 library 1 moved into /tmp/sb/archive/family (0 entries)
+2026/11/05 19:15:29 No account yet. Open Shoebox in the browser and use this setup code: BE3208B6
+2026/11/05 19:15:29 Shoebox ci-8d007a4 listening on 127.0.0.1:8080 (data: /tmp/sb/data, archive: /tmp/sb/archive)
+2026/11/05 19:24:56 archive scan: 1 new, 0 gone
+2026/11/05 19:25:29 statistics export: Post "http://127.0.0.1:18002/write": dial tcp 127.0.0.1:18002: connect: connection refused
