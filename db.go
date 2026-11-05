@@ -320,6 +320,9 @@ func (a *App) getDoc(id int64) (*Doc, error) {
 // Documents whose file went missing count only with withMissing (the
 // archive scan uses that to follow files moved by hand).
 func (a *App) docBySHA(lib int64, sha string, withMissing bool) (*Doc, error) {
+	if sha == "" {
+		return nil, sql.ErrNoRows // scans keep no source hash: an empty one matches nothing
+	}
 	q := `SELECT ` + docCols + ` FROM docs d LEFT JOIN senders s ON s.id = d.sender_id WHERE (d.sha256 = ?1 OR d.file_sha = ?1) AND d.library_id = ?2`
 	if !withMissing {
 		q += ` AND d.status <> 'missing'`

@@ -588,6 +588,14 @@ try {
   await p.getByRole('button', { name: 'Keep' }).click();
   await p.getByRole('dialog').waitFor({ state: 'detached' });
   if ((await p.locator('.strip .pg').count()) !== 2) problems.push('scan: the preview removed a page');
+  // adjust the corners of a page that was already taken (it was straightened in the background)
+  await p.getByRole('button', { name: 'Show page 1' }).click();
+  await p.getByRole('button', { name: 'Adjust corners' }).click();
+  await p.getByText('Adjust the corners of page 1').waitFor();
+  await p.getByRole('button', { name: 'Use page' }).click();
+  await p.getByRole('dialog', { name: 'Page 1 of 2' }).waitFor();
+  await p.locator('.preview-page img').waitFor();
+  await p.getByRole('button', { name: 'Keep' }).click();
   await p.getByRole('button', { name: 'Take photo' }).click();
   await p.getByRole('button', { name: 'Use page' }).click();
   await until(p, async () => (await p.locator('.strip .pg').count()) === 3, 'three pages');

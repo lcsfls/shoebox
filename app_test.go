@@ -787,7 +787,8 @@ func TestHomes(t *testing.T) {
 	if d == nil || d.LibraryID != annaHome || d.Status != "inbox" || d.Rule != "Stadtwerke" || d.Sender != "Stadtwerke Musterstadt" {
 		t.Fatalf("scanned: %+v (%s)", d, j.Error)
 	}
-	// shared with Family from Review
+	// shared with Family from Review, though Family has scans of its own (they keep no source hash)
+	a.insertDoc(NewDoc{Status: "inbox", Path: "other-scan.pdf", Title: "Another scan", Source: "scan", FileSHA: "abc", LibraryID: 1})
 	if code, out, _ := do("POST", fmt.Sprintf("/api/docs/%d/move", d.ID), map[string]any{"library": 1}, anna, annaHome); code != 200 {
 		t.Fatalf("move to Family: %d %v", code, out)
 	}

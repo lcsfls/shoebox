@@ -572,9 +572,13 @@ func (a *App) handleDocMove(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "You can't add documents to that library.")
 		return
 	}
-	if dup, err := a.docBySHA(in.Library, d.SHA256, false); err == nil && dup != nil {
-		fail(w, 409, "That library already has this document.")
-		return
+	var fileSHA string
+	a.db.QueryRow(`SELECT file_sha FROM docs WHERE id = ?`, d.ID).Scan(&fileSHA)
+	for _, sha := range []string{d.SHA256, fileSHA} {
+		if dup, err := a.docBySHA(in.Library, sha, false); err == nil && dup != nil {
+			fail(w, 409, "That library already has this document.")
+			return
+		}
 	}
 	archiveMu.Lock()
 	defer archiveMu.Unlock()

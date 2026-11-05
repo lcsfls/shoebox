@@ -3,7 +3,8 @@
   import { upload } from '../lib/api.js';
   import { toast, counts, libraries, intakeLibrary, showIntake } from '../lib/stores.js';
   import { navigate } from '../lib/router.js';
-  import { detectQuad, fullQuad, warp, enhance, outputSize, sharpness, toGray, autoShot } from '../lib/scan.js';
+  import { detectQuad, fullQuad, sharpness, toGray, autoShot } from '../lib/scan.js';
+  import { straighten } from '../lib/straighten.js';
   import Icon from '../components/Icon.svelte';
 
   const MAX_SIDE = 3400; // photos are scaled down to this before straightening
@@ -11,7 +12,11 @@
   let mode = $state('start'); // start | camera | crop | busy
   let liveCamera = $state(false);
   let cameraError = $state('');
-  let pages = $state([]); // { blob, url }
+  // { key, quad, filter, src (the photo, for adjusting the corners later), blob, url, busy, error }
+  let pages = $state([]);
+  let pageKey = 0;
+  const pending = new Map(); // key → the page being straightened
+  let editing = $state(-1); // the page whose corners are being adjusted again, -1: a new one
   let filter = $state(readFilter());
   let video = $state();
   let viewport = $state();
@@ -50,7 +55,12 @@
     else mode = 'start';
     const onResize = () => { fitFrame(); fitCrop(); };
     addEventListener('resize', onResize);
-    return () => { stopCamera(); removeEventListener('resize', onResize); pages.forEach((p) => URL.revokeObjectURL(p.url)); };
+    return () => {
+      stopCamera();
+      removeEventListener('resize', onResize);
+      pages.forEach((p) => p.url && URL.revokeObjectURL(p.url));
+      if (cropView.url) URL.revokeObjectURL(cropView.url);
+    };
   });
 
   async function startCamera() {
@@ -87,19 +97,31 @@
       await video.play().catch(() => {});
     }
     videoReady = !!video?.videoWidth;
+    keepTorch();
     fitFrame();
     detectLoop();
   }
 
-  async function toggleTorch() {
-    const track = stream?.getVideoTracks()[0];
-    if (!track) return;
+  // The light: phones switch it off after a photo or when the video is
+  // attached again, so it is switched on again, and the button shows what
+  // the camera really does.
+  const track0 = () => stream?.getVideoTracks()[0];
+  async function setTorch(on) {
+    const t = track0();
+    if (!t) return;
     try {
-      await track.applyConstraints({ advanced: [{ torch: !torch }] });
-      torch = !torch;
+      await t.applyConstraints({ advanced: [{ torch: on }] });
     } catch {
       torchAvailable = false;
+      return;
     }
+    torch = t.getSettings?.().torch ?? on;
+  }
+  function toggleTorch() {
+    return setTorch(!(track0()?.getSettings?.().torch ?? torch));
+  }
+  function keepTorch() {
+    if (torch && track0()?.getSettings?.().torch !== true) setTorch(true); // also where the browser doesn't tell
   }
 
   function stopCamera() {
@@ -172,22 +194,36 @@
       openCrop(await sharpestFrame(), quad);
     } finally {
       capturing = false;
+      keepTorch();
       if (mode === 'camera') detectLoop();
     }
   }
 
+  // Is a real photo bigger than the video picture? Asked once: taking one
+  // stalls the preview on many phones, so it is only done when it pays.
+  let photoBigger = null;
+  async function photoPays(track) {
+    if (photoBigger !== null) return photoBigger;
+    photoBigger = false;
+    const side = Math.max(video.videoWidth, video.videoHeight);
+    if (side >= 3000) return false; // 4K video: its frames are enough
+    try {
+      const caps = await new ImageCapture(track).getPhotoCapabilities();
+      photoBigger = (caps.imageWidth?.max || 0) > side * 1.2;
+    } catch {}
+    return photoBigger;
+  }
+
   async function takePhoto() {
-    const track = stream?.getVideoTracks()[0];
-    if (!track || typeof ImageCapture === 'undefined') return null;
+    const track = track0();
+    if (!track || typeof ImageCapture === 'undefined' || !(await photoPays(track))) return null;
     try {
       const ic = new ImageCapture(track);
       const blob = await Promise.race([
         ic.takePhoto(torch ? { fillLightMode: 'off' } : {}),
-        new Promise((_, no) => setTimeout(() => no(new Error('slow')), 4000)),
+        new Promise((_, no) => setTimeout(() => no(new Error('slow')), 3000)),
       ]);
       const bmp = await createImageBitmap(blob);
-      if (torch) track.applyConstraints({ advanced: [{ torch: true }] }).catch(() => {}); // some phones switch it off for the photo
-      // only worth it when the photo is bigger than the video picture
       if (Math.max(bmp.width, bmp.height) <= Math.max(video.videoWidth, video.videoHeight) * 1.2) return null;
       const s = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
       const c = document.createElement('canvas');
@@ -203,18 +239,19 @@
   async function sharpestFrame() {
     const vw = video.videoWidth, vh = video.videoHeight;
     const s = Math.min(1, MAX_SIDE / Math.max(vw, vh));
-    let best = null, bestScore = -1;
+    let bestScore = -1;
+    // each frame is judged small; only a sharper one is copied in full
+    const best = document.createElement('canvas');
+    best.width = Math.round(vw * s);
+    best.height = Math.round(vh * s);
+    const bctx = best.getContext('2d');
     const probe = document.createElement('canvas');
     probe.width = 320; probe.height = Math.round((320 * vh) / vw);
     const pctx = probe.getContext('2d', { willReadFrequently: true });
     for (let i = 0; i < 6; i++) {
-      const c = document.createElement('canvas');
-      c.width = Math.round(vw * s);
-      c.height = Math.round(vh * s);
-      c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
-      pctx.drawImage(c, 0, 0, probe.width, probe.height);
+      pctx.drawImage(video, 0, 0, probe.width, probe.height);
       const score = sharpness(pctx.getImageData(0, 0, probe.width, probe.height).data, probe.width, probe.height);
-      if (score > bestScore) { best = c; bestScore = score; }
+      if (score > bestScore) { bestScore = score; bctx.drawImage(video, 0, 0, best.width, best.height); }
       await new Promise((r) => setTimeout(r, 70));
     }
     return best;
@@ -233,7 +270,7 @@
       c.height = Math.round(bmp.height * s);
       c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
       if (files.length > 1) {
-        await addPage(c, autoQuad(c));
+        addPage(c, autoQuad(c), filter);
       } else {
         openCrop(c, autoQuad(c));
       }
@@ -250,9 +287,14 @@
 
   function openCrop(canvas, quad) {
     shot = { canvas, quad: (quad || fullQuad()).map((p) => ({ ...p })) };
-    cropView = { ...cropView, url: canvas.toDataURL('image/jpeg', 0.8) };
     mode = 'crop';
     requestAnimationFrame(fitCrop);
+    // encoded on the side, not in the way of the tap (toDataURL stalls)
+    canvas.toBlob((b) => {
+      if (!b || shot?.canvas !== canvas) return;
+      if (cropView.url) URL.revokeObjectURL(cropView.url);
+      cropView = { ...cropView, url: URL.createObjectURL(b) };
+    }, 'image/jpeg', 0.8);
   }
 
   function fitCrop() {
@@ -289,32 +331,80 @@
   }
   function handleUp() { dragging = -1; }
 
+  // The page is straightened in the background: the camera is back at once
+  // for the next one.
   async function usePage() {
     const { canvas, quad } = shot;
-    mode = 'busy';
-    await new Promise((r) => setTimeout(r, 30)); // let "Straightening …" paint
-    await addPage(canvas, quad);
+    const back = editing;
+    if (editing >= 0) {
+      const p = pages[editing];
+      editing = -1;
+      if (p) process(p, canvas, quad, filter);
+    } else {
+      addPage(canvas, quad, filter);
+    }
     if (liveCamera) await resumeCamera();
     else { shot = null; mode = 'start'; }
+    if (back >= 0) preview = back;
   }
 
-  async function addPage(canvas, quad) {
-    quad = quad || fullQuad(0);
-    const W = canvas.width, H = canvas.height;
-    const px = quad.map((p) => ({ x: p.x * (W - 1), y: p.y * (H - 1) }));
-    const { w, h } = outputSize(px, 3000);
-    const src = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W, H).data;
-    const out = warp(src, W, H, px, w, h);
-    enhance(out, filter, w, h);
-    const oc = document.createElement('canvas');
-    oc.width = w; oc.height = h;
-    oc.getContext('2d').putImageData(new ImageData(out, w, h), 0, 0);
-    const blob = await new Promise((r) => oc.toBlob(r, 'image/jpeg', 0.86));
-    pages = [...pages, { blob, url: URL.createObjectURL(blob) }];
+  function addPage(canvas, quad, look) {
+    const page = { key: ++pageKey, quad: null, filter: look, src: null, blob: null, url: '', busy: true, error: '' };
+    pages = [...pages, page];
+    process(pages[pages.length - 1], canvas, quad, look);
+  }
+
+  function process(page, canvas, quad, look) {
+    quad = (quad || fullQuad(0)).map((p) => ({ ...p }));
+    Object.assign(page, { quad, filter: look, busy: true, error: '' });
+    const key = page.key;
+    const find = () => pages.find((p) => p.key === key);
+    const job = (async () => {
+      const src = new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.92)); // kept for adjusting the corners later
+      try {
+        const blob = await straighten(canvas, quad, look);
+        const p = find();
+        if (p) {
+          if (p.url) URL.revokeObjectURL(p.url);
+          Object.assign(p, { blob, url: URL.createObjectURL(blob), busy: false });
+        }
+      } catch (e) {
+        const p = find();
+        if (p) Object.assign(p, { busy: false, error: e.message || 'failed' });
+        toast('A page could not be straightened. Take it again.', 'error');
+      }
+      const p = find();
+      if (p) p.src = await src;
+    })();
+    pending.set(key, job);
+    job.finally(() => pending.get(key) === job && pending.delete(key));
+  }
+
+  // adjusting the corners of a page that was already taken
+  async function adjust(i) {
+    const p = pages[i];
+    if (!p?.src) return;
+    const bmp = await createImageBitmap(p.src);
+    const c = document.createElement('canvas');
+    c.width = bmp.width;
+    c.height = bmp.height;
+    c.getContext('2d').drawImage(bmp, 0, 0);
+    bmp.close?.();
+    clearTimeout(loop);
+    editing = i;
+    filter = p.filter;
+    preview = -1;
+    openCrop(c, p.quad);
+  }
+  function cancelAdjust() {
+    const back = editing;
+    editing = -1;
+    if (liveCamera) resumeCamera().then(() => (preview = back));
+    else { shot = null; mode = 'start'; preview = back; }
   }
 
   function removePage(i) {
-    URL.revokeObjectURL(pages[i].url);
+    if (pages[i].url) URL.revokeObjectURL(pages[i].url);
     pages = pages.filter((_, j) => j !== i);
     preview = pages.length ? Math.min(i, pages.length - 1) : -1;
   }
@@ -328,6 +418,10 @@
 
   async function done() {
     if (!pages.length) return;
+    sending = 0.01;
+    await Promise.all([...pending.values()]); // pages still being straightened
+    sending = 0;
+    if (pages.some((p) => p.error || !p.blob)) { toast('A page failed. Remove it and take it again.', 'error', 6000); return; }
     const fd = new FormData();
     pages.forEach((p, i) => fd.append('pages', p.blob, `page-${i + 1}.jpg`));
     sending = 0.01;
@@ -361,7 +455,7 @@
 <div class="scan">
   <header class="bar">
     <button class="round" onclick={close} aria-label="Close the scanner"><Icon name="close" /></button>
-    <span class="title">{mode === 'crop' ? 'Adjust the corners' : `Page ${pages.length + 1}`}{#if $libraries.length > 1}<span class="into">into {$intakeLibrary?.name}</span>{/if}</span>
+    <span class="title">{mode === 'crop' ? 'Adjust the corners' + (editing >= 0 ? ` of page ${editing + 1}` : '') : `Page ${pages.length + 1}`}{#if $libraries.length > 1}<span class="into">into {$intakeLibrary?.name}</span>{/if}</span>
     {#if torchAvailable && mode === 'camera'}
       <button class="round" class:on={torch} onclick={toggleTorch} aria-pressed={torch} aria-label={torch ? 'Turn the light off' : 'Turn the light on'}><Icon name="flash" /></button>
     {:else}
@@ -420,9 +514,9 @@
 
   {#if pages.length && mode !== 'crop'}
     <div class="strip" aria-label="Scanned pages">
-      {#each pages as p, i (p.url)}
-        <button class="pg" onclick={() => (preview = i)} aria-label="Show page {i + 1}">
-          <img src={p.url} alt="" /><span class="num">{i + 1}</span>
+      {#each pages as p, i (p.key)}
+        <button class="pg" class:failed={p.error} onclick={() => (preview = i)} aria-label="Show page {i + 1}" aria-busy={p.busy}>
+          {#if p.url}<img src={p.url} alt="" />{:else}<span class="spin" aria-hidden="true"></span>{/if}<span class="num">{i + 1}</span>
         </button>
       {/each}
       <span class="muted strip-hint">Tap a page to look at it</span>
@@ -437,12 +531,14 @@
         <span class="round placeholder" aria-hidden="true"></span>
       </div>
       <div class="preview-page">
-        <img src={pages[preview].url} alt="Scanned page {preview + 1}" />
+        {#if pages[preview].url}<img src={pages[preview].url} alt="Scanned page {preview + 1}" />
+        {:else}<p class="hint-pill">{pages[preview].error ? 'This page failed.' : 'Straightening …'}</p>{/if}
         {#if preview > 0}<button class="round nav prev" onclick={() => preview--} aria-label="Previous page"><Icon name="back" /></button>{/if}
         {#if preview < pages.length - 1}<button class="round nav next" onclick={() => preview++} aria-label="Next page"><Icon name="back" /></button>{/if}
       </div>
       <div class="preview-actions">
         <button class="btn dark" onclick={() => removePage(preview)}><Icon name="trash" />Remove page</button>
+        <button class="btn dark" onclick={() => adjust(preview)} disabled={!pages[preview].src}><Icon name="crop" />Adjust corners</button>
         <button class="btn primary" onclick={() => (preview = -1)}>Keep</button>
       </div>
     </div>
@@ -450,7 +546,11 @@
 
   <footer class="controls">
     {#if mode === 'crop'}
-      <button class="btn dark" onclick={() => (liveCamera ? resumeCamera(true) : ((shot = null), (mode = 'start')))}>Retake</button>
+      {#if editing >= 0}
+        <button class="btn dark" onclick={cancelAdjust}>Cancel</button>
+      {:else}
+        <button class="btn dark" onclick={() => (liveCamera ? resumeCamera(true) : ((shot = null), (mode = 'start')))}>Retake</button>
+      {/if}
       <button class="round" onclick={rotate} aria-label="Rotate"><Icon name="rotate" /></button>
       <div class="seg" role="radiogroup" aria-label="Look">
         {#each [['doc', 'Document'], ['gray', 'Gray'], ['color', 'Color']] as [k, l]}
@@ -465,7 +565,7 @@
       {:else}
         <span class="shutter-space"></span>
       {/if}
-      <button class="btn primary" onclick={done} disabled={!pages.length || sending > 0}>
+      <button class="btn primary" onclick={done} disabled={!pages.length || sending > 0} title={pending.size ? 'Pages are still being straightened' : undefined}>
         {sending ? `${Math.round(sending * 100)} %` : `Done${pages.length ? ' · ' + pages.length : ''}`}
       </button>
     {/if}
@@ -509,6 +609,10 @@
   .strip { display: flex; gap: 8px; padding: 12px 14px 0; align-items: center; overflow-x: auto; }
   .pg { position: relative; width: 46px; height: 62px; padding: 0; border: 2px solid rgb(255 255 255 / 0.4); border-radius: 6px; overflow: visible; background: #fff; flex: none; cursor: pointer; }
   .pg img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; }
+  .pg .spin { position: absolute; inset: 0; margin: auto; width: 20px; height: 20px; border-radius: 50%; border: 2px solid #ccc; border-top-color: #8B5A2B; animation: spin 0.8s linear infinite; }
+  .pg.failed { border-color: #B3261E; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .preview-actions .btn { flex: 1; min-width: 0; }
   .num { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; border-radius: 50%; background: #fff; color: #14110D; font-size: 0.7rem; font-weight: 700; display: grid; place-items: center; }
   .strip-hint { font-size: 0.8rem; color: rgb(255 255 255 / 0.7); white-space: nowrap; }
   .controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px max(18px, calc(env(safe-area-inset-bottom) + 10px)); flex-wrap: wrap; }

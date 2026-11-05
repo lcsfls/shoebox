@@ -39,8 +39,24 @@ const out = 'dist';
 await rm(path.join(out, 'assets'), { recursive: true, force: true });
 await mkdir(path.join(out, 'assets'), { recursive: true });
 
+const common = {
+  bundle: true,
+  format: 'esm',
+  outdir: path.join(out, 'assets'),
+  entryNames: '[name]-[hash]',
+  minify: !dev,
+  sourcemap: dev,
+  target: ['es2022', 'safari16'],
+  metafile: true,
+  logLevel: 'warning',
+};
+// the scanner's page worker first: the app gets its file name
+const workerBuild = await esbuild.build({ ...common, entryPoints: ['src/lib/scan.worker.js'] });
+const workerFile = Object.keys(workerBuild.metafile.outputs).map((p) => '/' + path.relative(out, p).split(path.sep).join('/')).find((p) => p.endsWith('.js'));
+
 const result = await esbuild.build({
   entryPoints: ['src/main.js'],
+  define: { __SCAN_WORKER__: JSON.stringify(workerFile) },
   bundle: true,
   format: 'esm',
   outdir: path.join(out, 'assets'),
@@ -71,6 +87,6 @@ await writeFile(path.join(out, 'index.html'), html);
 // service worker: cache the app shell, never the documents
 const sw = (await readFile('src/sw.js', 'utf8'))
   .replace('%VERSION%', version)
-  .replace('%ASSETS%', JSON.stringify(['/', `/${js}`, `/${style}`, '/manifest.webmanifest', '/icon.svg', '/icon-192.png']));
+  .replace('%ASSETS%', JSON.stringify(['/', `/${js}`, `/${style}`, workerFile, '/manifest.webmanifest', '/icon.svg', '/icon-192.png']));
 await writeFile(path.join(out, 'sw.js'), sw);
-console.log(`built ${js}, ${style}`);
+console.log(`built ${js}, ${style}, ${workerFile.slice(1)}`);
