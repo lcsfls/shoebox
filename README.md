@@ -75,12 +75,29 @@ docker compose logs shoebox | grep "setup code"
 
 ## Good to know
 
-- **The camera needs HTTPS.** Browsers only allow the live camera on secure pages. Put Shoebox behind your reverse proxy with a certificate (Caddy, nginx, Nginx Proxy Manager; a DNS challenge works for addresses only reachable at home), or give it a certificate with `SB_TLS_CERT` and `SB_TLS_KEY`. On plain HTTP, “Take a photo” opens the camera app instead, and Shoebox straightens that photo just the same.
+- **The live camera, the app install and passkeys need HTTPS**, see [HTTPS or plain HTTP](#https-or-plain-http) below. On plain HTTP (say `http://192.168.1.50:8080` in the home network) scanning still works through the phone's camera app.
 - **Install it as an app:** open Shoebox on the phone, then *Add to home screen*. It opens without browser bars and starts on the scanner with a long press on the icon (Android).
 - **The database stays on the local disk** (`SB_DATA`). Only the PDFs go to the archive folder, which may be a network share. SQLite on NFS is not safe.
 - **Backups:** the archive folder is the important part; the PDFs carry their own title, sender, tags and date. *Settings → Storage → Back up now* (or every day) also puts a copy of the database into `archive/.shoebox-backup/`, with notes, rules, accounts and the documents waiting in Review. The same page shows how to restore it.
-- **Passkeys need HTTPS** and a host name (not an IP address), like the camera.
 - **Nothing is deleted right away.** Deleting a document moves the PDF into `SB_DATA/trash`. When Shoebox adds a text layer to a PDF you put into the archive, the untouched original is kept in `SB_DATA/originals`.
+
+### HTTPS or plain HTTP
+
+Browsers allow some things only on secure pages: HTTPS, or `localhost` on the computer itself. A plain `http://` address, also a local one in the home network, is not secure to them, whatever Shoebox does.
+
+| | HTTPS with a host name | plain HTTP (e.g. `http://192.168.1.50:8080`) |
+|---|---|---|
+| Archive, search, Review, uploads, letters, settings | ✓ | ✓ |
+| Scanning | live camera: page detection, takes the photo by itself, light | the phone's camera app (*Take a photo*) or the gallery; Shoebox still finds the page, lets you drag the corners and straightens it |
+| Install as an app (home screen, opens offline) | ✓ | only a bookmark, no offline start |
+| Passkeys | ✓ (a host name, not an IP address) | – |
+| Password sign-in and API tokens | ✓ | work, but go over the network unencrypted |
+
+To get HTTPS at home:
+
+1. **A reverse proxy with a real domain** (recommended): Caddy, nginx or Nginx Proxy Manager with a Let's Encrypt certificate through the DNS challenge, which works for an address only reachable at home. A local DNS entry (router, Pi-hole, AdGuard) points the name to Shoebox's internal IP.
+2. **Shoebox speaks HTTPS itself:** `SB_TLS_CERT` and `SB_TLS_KEY` point to a certificate and its key. A self-signed one makes every phone warn, so a real certificate is the better choice here too.
+3. **Only to try it on one phone:** in Chrome on Android, `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, enter Shoebox's address (e.g. `http://192.168.1.50:8080`) and restart Chrome. The live camera then works on that phone only; not for everyday use.
 
 ### A local AI model for reading
 
