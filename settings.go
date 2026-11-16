@@ -13,6 +13,7 @@ type AISettings struct {
 	APIKey     string `json:"api_key"`     // write-only through the API
 	Model      string `json:"model"`       // e.g. the Baidu OCR model as served by vLLM
 	Fields     bool   `json:"fields"`      // also ask the model for title, date, sender, amount
+	Only       bool   `json:"only"`        // the model reads alone: no Tesseract, no text layer in the PDF (Tesseract only when the model fails)
 	Prompt     string `json:"prompt"`      // OCR prompt; empty = default
 	TimeoutSec int    `json:"timeout_sec"` // per page
 	MaxPages   int    `json:"max_pages"`   // pages per document sent to the model

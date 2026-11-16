@@ -3,7 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/jpeg"
+	_ "image/png"
 	"log"
 	"os"
 	"os/exec"
@@ -255,4 +260,79 @@ func copyFile(src, dst string) error {
 		f.Close()
 	}
 	return os.Rename(tmp, dst)
+}
+
+// imagesToPDF puts photographed pages into a PDF as they are, without
+// recognizing text (the AI model reads them): JPEGs go in untouched, other
+// pictures as JPEG. Each page is A4 wide (A4 high when it lies on its side).
+func imagesToPDF(images []string, out string) error {
+	type page struct {
+		jpg  []byte
+		w, h int
+		gray bool
+	}
+	var pages []page
+	for _, p := range images {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		cfg, format, err := image.DecodeConfig(bytes.NewReader(raw))
+		if err != nil {
+			return fmt.Errorf("%s: %w", filepath.Base(p), err)
+		}
+		gray := cfg.ColorModel == color.GrayModel
+		if format != "jpeg" || cfg.ColorModel == color.CMYKModel {
+			img, _, err := image.Decode(bytes.NewReader(raw))
+			if err != nil {
+				return err
+			}
+			var b bytes.Buffer
+			if err := jpeg.Encode(&b, img, &jpeg.Options{Quality: 90}); err != nil {
+				return err
+			}
+			raw = b.Bytes()
+			_, gray = img.(*image.Gray)
+		}
+		pages = append(pages, page{raw, cfg.Width, cfg.Height, gray})
+	}
+	if len(pages) == 0 {
+		return errors.New("no pages")
+	}
+	var objs []string
+	add := func(o string) int { objs = append(objs, o); return len(objs) }
+	add("<< /Type /Catalog /Pages 2 0 R >>")
+	add("")
+	var kids []string
+	for i, pg := range pages {
+		pw := 595.28 // A4 in points
+		if pg.w > pg.h {
+			pw = 841.89
+		}
+		ph := pw * float64(pg.h) / float64(pg.w)
+		cs := "/DeviceRGB"
+		if pg.gray {
+			cs = "/DeviceGray"
+		}
+		im := add(fmt.Sprintf("<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
+			pg.w, pg.h, cs, len(pg.jpg), pg.jpg))
+		content := fmt.Sprintf("q %.2f 0 0 %.2f 0 0 cm /Im%d Do Q", pw, ph, i)
+		c := add(fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content))
+		kids = append(kids, fmt.Sprintf("%d 0 R", add(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Resources << /XObject << /Im%d %d 0 R >> >> /Contents %d 0 R >>", pw, ph, i, im, c))))
+	}
+	objs[1] = fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), len(kids))
+	var b bytes.Buffer
+	b.WriteString("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+	offs := make([]int, len(objs))
+	for i, o := range objs {
+		offs[i] = b.Len()
+		fmt.Fprintf(&b, "%d 0 obj\n%s\nendobj\n", i+1, o)
+	}
+	xref := b.Len()
+	fmt.Fprintf(&b, "xref\n0 %d\n0000000000 65535 f \n", len(objs)+1)
+	for _, o := range offs {
+		fmt.Fprintf(&b, "%010d 00000 n \n", o)
+	}
+	fmt.Fprintf(&b, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objs)+1, xref)
+	return os.WriteFile(out, b.Bytes(), 0o640)
 }

@@ -101,13 +101,18 @@ To get HTTPS at home:
 
 ### A local AI model for reading
 
-Under *Settings → Text recognition & AI*, enter the address of any OpenAI-compatible server and the model name, for example a vLLM server on a machine with a GPU:
+Under *Settings → Text recognition & AI*, enter the address of any OpenAI-compatible server (vLLM, Ollama, LM Studio, llama.cpp) and the model name. *Test connection* lists the models the server offers.
 
-```bash
-vllm serve <model-name> --port 8000     # e.g. Baidu's OCR model from Hugging Face
-```
+By default Tesseract keeps making the searchable PDF and the model's text is used for search and for recognizing the facts. With *Read with the model only, skip Tesseract*, the model reads alone: quicker on a small Shoebox server, but the PDF has no hidden text layer, so text can't be selected or searched in other PDF viewers (Shoebox's own search still finds everything). When the model fails or gives nothing, Tesseract steps in. With *Also ask for title, date, sender and amount*, an instruction-following model fills those in (sorting rules still win).
 
-Address: `http://gpu-box:8000/v1`. *Test connection* lists the models the server offers. Tesseract keeps making the searchable PDF; the model's text is used for search and for recognizing the facts. With *Also ask for title, date, sender and amount*, an instruction-following model fills those in (sorting rules still win).
+**Which model?** Two good choices as of late 2026; the leaderboards move fast, so try one on a few of your own letters:
+
+| | for | serve it |
+|---|---|---|
+| **PaddleOCR-VL 1.6** (Baidu, 0.9 B) | the best plain reading for its size, little GPU memory; it only reads, so leave *Also ask for title …* off | `vllm serve PaddlePaddle/PaddleOCR-VL-1.6 --trust-remote-code --port 8000` (vLLM 0.11.1 or newer); set the prompt to `OCR:` |
+| **Qwen3-VL 8B Instruct** | reads well and also fills in title, date, sender and amount | Ollama: `ollama pull qwen3-vl:8b-instruct` (about 6 GB at 4 bit), address `http://gpu-box:11434/v1`; or `vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8000` |
+
+On a smaller graphics card the 2 B model (`qwen3-vl:2b`, its instruct tag) can be enough for printed letters. Take the *instruct* variants: the others think out loud before they answer, which is slow and ends up in the text. For a vLLM server the address is `http://gpu-box:8000/v1`.
 
 ### Moving from Paperless-ngx
 

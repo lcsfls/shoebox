@@ -911,3 +911,48 @@ func TestMetrics(t *testing.T) {
 		t.Errorf("settings show the header: %v", out["settings"])
 	}
 }
+
+func TestAIOnly(t *testing.T) {
+	needTools(t, "tesseract", "qpdf", "pdftotext", "pdfinfo", "pdftoppm")
+	a := testApp(t)
+	broken := false
+	pages := 0
+	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if broken {
+			http.Error(w, "out of memory", 500)
+			return
+		}
+		pages++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"choices":[{"message":{"content":"Stadtwerke Musterstadt\nRechnungsdatum 24.10.2026\nGesamtbetrag 84,20 EUR\nModellwort Zitronenfalter"}}]}`))
+	}))
+	defer ai.Close()
+	s := a.settings()
+	s.AI = AISettings{Enabled: true, Only: true, BaseURL: ai.URL, Model: "ocr", TimeoutSec: 30, MaxPages: 5}
+	a.saveSettings(s)
+
+	// the model reads alone: its text, no Tesseract text layer in the PDF
+	j := waitJob(t, a, scanJob(t, a, 1))
+	d, _ := a.getDoc(j.DocID)
+	if d == nil || d.OCR != "ai" || pages != 1 {
+		t.Fatalf("AI only: %+v (%s), model asked %d times", d, j.Error, pages)
+	}
+	if docs, _, _ := a.listDocs(DocQuery{Library: 1, Q: "zitronenfalter", Status: "inbox"}); len(docs) != 1 {
+		t.Errorf("the model's text is not searchable: lib %d, text %q", d.LibraryID, a.docText(d.ID))
+	}
+	p, _ := a.docFile(d)
+	if hasText(pdfText(context.Background(), p)) {
+		t.Error("the PDF got a text layer although the model reads alone")
+	}
+	if n := pdfPages(context.Background(), p); n != 1 {
+		t.Errorf("the PDF has %d pages", n)
+	}
+
+	// the model fails: Tesseract after all, so the document has its text
+	broken = true
+	j = waitJob(t, a, scanJob(t, a, 2))
+	d, _ = a.getDoc(j.DocID)
+	if d == nil || d.OCR != "tesseract" || !strings.Contains(strings.ToLower(a.docText(d.ID)), "stadtwerke") {
+		t.Fatalf("fallback: %+v (%s)", d, j.Error)
+	}
+}

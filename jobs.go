@@ -201,11 +201,17 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 	}
 
 	started := time.Now()
+	aiOn := s.AI.Enabled && s.AI.BaseURL != "" && s.AI.Model != ""
+	aiOnly := aiOn && s.AI.Only // no Tesseract: the model reads the pictures
 	if isPDF {
 		step("Reading text")
 		text = pdfText(ctx, first)
 		if hasText(text) {
 			ocr = "pdf"
+			if err := os.Rename(first, out); err != nil {
+				return 0, err
+			}
+		} else if aiOnly {
 			if err := os.Rename(first, out); err != nil {
 				return 0, err
 			}
@@ -216,6 +222,8 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 			}
 			ocr = "tesseract"
 		}
+	} else if aiOnly && imagesToPDF(job.files, out) == nil {
+		// the pictures as they are (a TIFF or WebP goes the Tesseract way below)
 	} else {
 		step("Recognizing text")
 		if text, err = ocrImages(ctx, job.files, s.Languages, out); err != nil {
@@ -225,12 +233,23 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 	}
 
 	var aiFacts *Facts
-	if s.AI.Enabled && s.AI.BaseURL != "" && s.AI.Model != "" {
+	if aiOn {
 		step("Reading with the AI model")
 		if t, err := a.aiOCR(ctx, s.AI, out, job.dir); err != nil {
 			log.Printf("AI text recognition failed, keeping Tesseract's text: %v", err)
 		} else if hasText(t) {
-			text, ocr = t, ocr+"+ai"
+			text, ocr = t, strings.TrimPrefix(ocr+"+ai", "+")
+		}
+		if aiOnly && ocr == "" {
+			// the model gave nothing: Tesseract after all, so the document has its text
+			step("Recognizing text")
+			tmp := filepath.Join(job.dir, "tesseract.pdf")
+			if t, err := ocrPDF(ctx, out, tmp, s.Languages); err == nil {
+				os.Rename(tmp, out)
+				text, ocr = t, "tesseract"
+			} else {
+				log.Printf("text recognition failed: %v", err)
+			}
 		}
 		if s.AI.Fields {
 			if f, err := a.aiFields(ctx, s.AI, job.LibraryID, text); err == nil {
@@ -501,7 +520,9 @@ func (a *App) processFolderFile(ctx context.Context, lib int64, rel string, step
 	text := pdfText(ctx, abs)
 	ocr := "pdf"
 	var ocrMillis int64
-	if !hasText(text) && s.WatchOCR {
+	aiOn := s.AI.Enabled && s.AI.BaseURL != "" && s.AI.Model != ""
+	// a text layer by Tesseract, for a PDF without one (in AI-only mode only when the model fails)
+	layer := func() error {
 		step("Recognizing text")
 		started := time.Now()
 		// keep the untouched original on the local disk, just in case
@@ -510,25 +531,42 @@ func (a *App) processFolderFile(ctx context.Context, lib int64, rel string, step
 		t, err := ocrPDF(ctx, abs, tmp, s.Languages)
 		if err != nil {
 			os.Remove(tmp)
-			return 0, err
+			return err
 		}
 		archiveMu.Lock()
 		err = os.Rename(tmp, abs)
 		archiveMu.Unlock()
 		if err != nil {
 			os.Remove(tmp)
-			return 0, err
+			return err
 		}
 		text, ocr = t, "tesseract"
 		ocrMillis = time.Since(started).Milliseconds()
+		return nil
+	}
+	hadText := hasText(text)
+	if !hadText && s.WatchOCR && !(aiOn && s.AI.Only) {
+		if err := layer(); err != nil {
+			return 0, err
+		}
 	}
 	var aiFacts *Facts
-	if s.AI.Enabled && s.AI.BaseURL != "" && s.AI.Model != "" {
+	if aiOn {
 		dir, _ := os.MkdirTemp("", "ai")
 		if t, err := a.aiOCR(ctx, s.AI, abs, dir); err == nil && hasText(t) {
-			text, ocr = t, ocr+"+ai"
+			if ocr == "pdf" && !hadText {
+				ocr = "ai"
+			} else {
+				ocr += "+ai"
+			}
+			text = t
 		}
 		os.RemoveAll(dir)
+		if s.AI.Only && !hasText(text) && s.WatchOCR {
+			if err := layer(); err != nil {
+				return 0, err
+			}
+		}
 		if s.AI.Fields {
 			aiFacts, _ = a.aiFields(ctx, s.AI, lib, text)
 		}

@@ -84,6 +84,8 @@
       <input type="password" bind:value={key} autocomplete="off" placeholder={keySet ? '••••••••' : ''} />
     </label>
     {#if keySet}<div><button type="button" class="btn small ghost" onclick={clearKey}>Remove the stored key</button></div>{/if}
+    <label class="check"><input type="checkbox" bind:checked={s.ai.only} />
+      <span>Read with the model only, skip Tesseract<span class="hint">Faster on a small server, and the model's reading is used throughout. The PDF then has no hidden text layer: text can't be selected or searched in other PDF viewers (Shoebox's search still finds everything). When the model fails, Tesseract steps in.</span></span></label>
     <label class="check"><input type="checkbox" bind:checked={s.ai.fields} />
       <span>Also ask for title, date, sender and amount<span class="hint">Sorting rules still win. Needs a model that can follow instructions; pure OCR models can't.</span></span></label>
     <label class="field">Prompt for reading a page<textarea bind:value={s.ai.prompt} rows="3" placeholder={defaultPrompt}></textarea><span class="hint">Empty uses the default. Some OCR models expect their own prompt; see the model's page.</span></label>
