@@ -219,8 +219,10 @@
       display: flex; align-items: center; gap: 12px; min-height: 42px; padding: 0 12px; border-radius: 10px;
       color: var(--ink-2); text-decoration: none; font-weight: 500;
     }
-    .navlink:hover { background: var(--bg); }
-    .navlink[aria-current='page'] { background: var(--chip); color: var(--chip-ink); font-weight: 650; }
+    /* hover stays lighter than the current page, which keeps its look when hovered */
+    .navlink:not([aria-current='page']):hover { background: color-mix(in srgb, var(--chip) 45%, transparent); color: var(--ink); }
+    .navlink[aria-current='page'] { background: var(--chip); color: var(--chip-ink); font-weight: 650; box-shadow: inset 3px 0 0 var(--accent); }
+    .navlink:focus-visible { outline-offset: -2px; }
     .navlink .badge { margin-left: auto; }
     .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
   }

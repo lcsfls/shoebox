@@ -65,8 +65,9 @@
     .layout { grid-template-columns: 230px minmax(0, 1fr); align-items: start; }
     .sub { flex-direction: column; margin: 0; padding: 0; position: sticky; top: 20px; }
     .sub a { border: 0; background: transparent; border-radius: 10px; }
-    .sub a:hover { background: var(--card); }
-    .sub a[aria-current='page'] { background: var(--chip); color: var(--chip-ink); font-weight: 650; }
+    .sub a:not([aria-current='page']):hover { background: color-mix(in srgb, var(--chip) 45%, transparent); }
+    .sub a[aria-current='page'] { background: var(--chip); color: var(--chip-ink); font-weight: 650; box-shadow: inset 3px 0 0 var(--accent); }
+    .sub a:focus-visible { outline-offset: -2px; }
   }
   :global(.settings .sec) { padding: 18px; display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; }
   :global(.settings .sec h2) { margin-bottom: -4px; }
