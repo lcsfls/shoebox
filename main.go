@@ -49,6 +49,8 @@ type App struct {
 	metricsMu   sync.Mutex // the statistics export: when it last sent, and how that went
 	metricsLast time.Time
 	metricsErr  string
+
+	enrich enrichRun // the AI model going through older documents
 }
 
 func env(k, def string) string {
@@ -208,7 +210,11 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/docs/{id}", a.member(a.handleDocUpdate))
 	mux.HandleFunc("POST /api/docs/{id}/file", a.member(a.handleDocFile))
 	mux.HandleFunc("DELETE /api/docs/{id}", a.member(a.handleDocDelete))
+	mux.HandleFunc("GET /api/todo", a.auth(a.handleTodo))
 	mux.HandleFunc("GET /api/docs/zip", a.auth(a.handleDocsZip))
+	mux.HandleFunc("POST /api/docs/{id}/enrich", a.member(a.handleDocEnrich))
+	mux.HandleFunc("GET /api/ai/enrich", a.admin(a.handleEnrichAll))
+	mux.HandleFunc("POST /api/ai/enrich", a.admin(a.handleEnrichAll))
 	mux.HandleFunc("GET /api/docs/{id}/pdf", a.auth(a.handleDocPDF))
 	mux.HandleFunc("GET /api/docs/{id}/thumb", a.auth(a.handleDocThumb))
 	mux.HandleFunc("GET /api/docs/{id}/page/{n}", a.auth(a.handleDocPage))

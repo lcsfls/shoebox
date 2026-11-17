@@ -607,6 +607,7 @@ func (a *App) handleDocMove(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "Can't move the file: "+err.Error())
 			return
 		}
+		moveSidecar(src, dst)
 	}
 	err := func() error {
 		tx, err := a.db.Begin()
@@ -629,6 +630,7 @@ func (a *App) handleDocMove(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if dst != "" {
 			moveFile(dst, src)
+			moveSidecar(dst, src)
 		}
 		fail(w, 500, err.Error())
 		return

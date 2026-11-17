@@ -187,6 +187,13 @@ var migrations = []string{
 	// 6: a private Home library for each account (owner_id); the first library is the family's
 	`ALTER TABLE libraries ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
 	UPDATE libraries SET name = 'Family' WHERE id = 1 AND name = 'Shared';`,
+	// 7: what the AI model (or a person) noted: a summary, keywords, a deadline and what to do by then
+	`ALTER TABLE docs ADD COLUMN summary TEXT NOT NULL DEFAULT '';
+	ALTER TABLE docs ADD COLUMN keywords TEXT NOT NULL DEFAULT '';
+	ALTER TABLE docs ADD COLUMN due_date TEXT NOT NULL DEFAULT '';
+	ALTER TABLE docs ADD COLUMN action TEXT NOT NULL DEFAULT '';
+	ALTER TABLE docs ADD COLUMN done_at TEXT NOT NULL DEFAULT '';
+	CREATE INDEX docs_due ON docs(library_id, due_date);`,
 }
 
 func migrate(db *sql.DB) error {
@@ -276,6 +283,11 @@ type Doc struct {
 	Tags        []string          `json:"tags"`
 	AddedBy     string            `json:"added_by"`
 	LibraryID   int64             `json:"library_id"`
+	Summary     string            `json:"summary"`  // one sentence: what it is, what it means
+	Keywords    []string          `json:"keywords"` // worth searching for: contract and customer numbers …
+	Due         string            `json:"due"`      // YYYY-MM-DD: by when something has to be done
+	Action      string            `json:"action"`   // what has to be done, e.g. "überweisen"
+	DoneAt      string            `json:"done_at"`  // when it was marked done
 	Snippet     string            `json:"snippet,omitempty"`
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
@@ -286,16 +298,18 @@ type Doc struct {
 const docCols = `d.id, d.status, d.path, d.title, COALESCE(s.name,''), COALESCE(d.sender_id,0), d.doc_date, d.amount_cents,
 	d.pages, d.size, d.source, d.ocr, d.notes, d.fields, d.rule, d.created_at, d.updated_at, d.sha256, d.mtime,
 	COALESCE((SELECT group_concat(t.name, char(31)) FROM doc_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.doc_id = d.id), ''),
-	COALESCE((SELECT COALESCE(NULLIF(u.name,''), u.username) FROM users u WHERE u.id = d.added_by), ''), d.library_id`
+	COALESCE((SELECT COALESCE(NULLIF(u.name,''), u.username) FROM users u WHERE u.id = d.added_by), ''), d.library_id,
+	d.summary, d.keywords, d.due_date, d.action, d.done_at`
 
 type scanner interface{ Scan(...any) error }
 
 func scanDoc(row scanner, extra ...any) (*Doc, error) {
 	var d Doc
 	var amount sql.NullInt64
-	var fields, tags string
+	var fields, tags, keywords string
 	dest := []any{&d.ID, &d.Status, &d.Path, &d.Title, &d.Sender, &d.SenderID, &d.Date, &amount,
-		&d.Pages, &d.Size, &d.Source, &d.OCR, &d.Notes, &fields, &d.Rule, &d.CreatedAt, &d.UpdatedAt, &d.SHA256, &d.MTime, &tags, &d.AddedBy, &d.LibraryID}
+		&d.Pages, &d.Size, &d.Source, &d.OCR, &d.Notes, &fields, &d.Rule, &d.CreatedAt, &d.UpdatedAt, &d.SHA256, &d.MTime, &tags, &d.AddedBy, &d.LibraryID,
+		&d.Summary, &keywords, &d.Due, &d.Action, &d.DoneAt}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
 		return nil, err
 	}
@@ -309,6 +323,7 @@ func scanDoc(row scanner, extra ...any) (*Doc, error) {
 	if tags != "" {
 		d.Tags = strings.Split(tags, "\x1f")
 	}
+	d.Keywords = splitKeywords(keywords)
 	return &d, nil
 }
 
@@ -370,15 +385,41 @@ func setTags(tx execer, lib, docID int64, tags []string) error {
 	return nil
 }
 
+// keywords are stored one per line
+func splitKeywords(s string) []string {
+	out := []string{}
+	for _, k := range strings.Split(s, "\n") {
+		if k = strings.TrimSpace(k); k != "" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// cleanKeywords: at most 8, short, each once.
+func cleanKeywords(in []string) string {
+	var out []string
+	for _, k := range in {
+		k = clean(strings.ReplaceAll(k, "\n", " "), 60)
+		if k != "" && !containsFold(out, k) && len(out) < 8 {
+			out = append(out, k)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // reindex refreshes the full-text entry of a document. body == nil keeps the stored text.
+// Keywords and the summary are found like tags.
 func reindex(tx execer, id int64, body *string) error {
-	var title, sender, tags string
+	var title, sender, tags, keywords, summary string
 	err := tx.QueryRow(`SELECT d.title, COALESCE(s.name,''),
-		COALESCE((SELECT group_concat(t.name, ' ') FROM doc_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.doc_id = d.id), '')
-		FROM docs d LEFT JOIN senders s ON s.id = d.sender_id WHERE d.id = ?`, id).Scan(&title, &sender, &tags)
+		COALESCE((SELECT group_concat(t.name, ' ') FROM doc_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.doc_id = d.id), ''),
+		d.keywords, d.summary
+		FROM docs d LEFT JOIN senders s ON s.id = d.sender_id WHERE d.id = ?`, id).Scan(&title, &sender, &tags, &keywords, &summary)
 	if err != nil {
 		return err
 	}
+	tags = strings.TrimSpace(tags + " " + strings.ReplaceAll(keywords, "\n", " ") + " " + summary)
 	text := ""
 	if body != nil {
 		text = *body
@@ -422,6 +463,10 @@ type NewDoc struct {
 	Tags        []string
 	Text        string
 	PaperlessID int64
+	Summary     string
+	Keywords    []string
+	Due         string
+	Action      string
 }
 
 func (a *App) insertDoc(n NewDoc) (int64, error) {
@@ -450,9 +495,11 @@ func (a *App) insertDoc(n NewDoc) (int64, error) {
 	}
 	ts := now()
 	res, err := tx.Exec(`INSERT INTO docs(status, path, sha256, file_sha, title, sender_id, doc_date, amount_cents, pages, size, mtime,
-		source, ocr, notes, fields, rule, paperless_id, created_at, updated_at, added_by, ocr_ms, library_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		source, ocr, notes, fields, rule, paperless_id, created_at, updated_at, added_by, ocr_ms, library_id,
+		summary, keywords, due_date, action) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		n.Status, n.Path, n.SHA256, n.FileSHA, n.Title, sid, n.Date, amount, n.Pages, n.Size, n.MTime,
-		n.Source, n.OCR, n.Notes, string(fields), n.Rule, pid, ts, ts, nullID(n.AddedBy), n.OCRMillis, n.LibraryID)
+		n.Source, n.OCR, n.Notes, string(fields), n.Rule, pid, ts, ts, nullID(n.AddedBy), n.OCRMillis, n.LibraryID,
+		clean(n.Summary, 400), cleanKeywords(n.Keywords), validDue(n.Due), clean(n.Action, 80))
 	if err != nil {
 		return 0, err
 	}
@@ -475,6 +522,11 @@ type DocPatch struct {
 	NoAmount    bool      `json:"no_amount"`
 	Notes       *string   `json:"notes"`
 	Tags        *[]string `json:"tags"`
+	Summary     *string   `json:"summary"`
+	Keywords    *[]string `json:"keywords"`
+	Due         *string   `json:"due"`
+	Action      *string   `json:"action"`
+	Done        *bool     `json:"done"`
 }
 
 func (a *App) patchDoc(id int64, p DocPatch) error {
@@ -509,6 +561,25 @@ func (a *App) patchDoc(id int64, p DocPatch) error {
 	} else if p.AmountCents != nil {
 		tx.Exec(`UPDATE docs SET amount_cents = ? WHERE id = ?`, *p.AmountCents, id)
 	}
+	if p.Summary != nil {
+		tx.Exec(`UPDATE docs SET summary = ? WHERE id = ?`, clean(*p.Summary, 400), id)
+	}
+	if p.Keywords != nil {
+		tx.Exec(`UPDATE docs SET keywords = ? WHERE id = ?`, cleanKeywords(*p.Keywords), id)
+	}
+	if p.Due != nil {
+		tx.Exec(`UPDATE docs SET due_date = ? WHERE id = ?`, validDue(*p.Due), id)
+	}
+	if p.Action != nil {
+		tx.Exec(`UPDATE docs SET action = ? WHERE id = ?`, clean(*p.Action, 80), id)
+	}
+	if p.Done != nil {
+		done := ""
+		if *p.Done {
+			done = now()
+		}
+		tx.Exec(`UPDATE docs SET done_at = ? WHERE id = ?`, done, id)
+	}
 	if p.Notes != nil {
 		tx.Exec(`UPDATE docs SET notes = ? WHERE id = ?`, clean(*p.Notes, 10000), id)
 	}
@@ -529,6 +600,15 @@ func nullID(id int64) any {
 		return nil
 	}
 	return id
+}
+
+// validDue: a deadline as YYYY-MM-DD, or "".
+func validDue(s string) string {
+	s = strings.TrimSpace(s)
+	if !validDate(s) {
+		return ""
+	}
+	return s
 }
 
 func validDate(s string) bool {

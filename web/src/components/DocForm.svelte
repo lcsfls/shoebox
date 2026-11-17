@@ -58,6 +58,13 @@
     </div>
     {@render pen('tags')}
   </div>
+  <!-- what to do by when: shows on the start page under "To do" until it is marked done -->
+  <div class="two">
+    <label class="field">Deadline<input type="date" bind:value={form.due} id="{idPrefix}-due" /></label>
+    <label class="field">To do<input type="text" bind:value={form.action} maxlength="80" placeholder="e.g. Betrag überweisen" id="{idPrefix}-action" /></label>
+  </div>
+  <label class="field">Summary<textarea bind:value={form.summary} rows="2" maxlength="400" id="{idPrefix}-summary"></textarea></label>
+  <label class="field">Keywords <span class="hint">separated by commas; found by the search</span><input type="text" bind:value={form.keywords} placeholder="e.g. Kundennummer 4711, Zähler" id="{idPrefix}-keywords" /></label>
   <label class="field">Notes <span class="hint">only here, not in the PDF</span><textarea bind:value={form.notes} rows="2"></textarea></label>
 </div>
 

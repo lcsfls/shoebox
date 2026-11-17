@@ -542,6 +542,36 @@ try {
   await until(d, async () => (await libMenu.innerText()).includes('Home'), 'back in Home');
   log('library menu ok');
 
+  // a deadline: shows under "To do" on the start page until it is done; with .md files on, one lies next to the PDF
+  await d.goto(B + '/settings/general');
+  await d.getByText('A .md file next to every filed PDF').click();
+  await d.getByRole('button', { name: 'Save', exact: true }).first().click();
+  await d.getByText('Saved').first().waitFor();
+  const todoDoc = (await api(d, '/api/docs?limit=1')).docs[0];
+  const inThree = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  await d.goto(B + '/doc/' + todoDoc.id);
+  await d.getByRole('button', { name: 'Edit', exact: true }).click();
+  await d.locator('#dv-due').fill(inThree);
+  await d.locator('#dv-action').fill('Betrag überweisen');
+  await d.locator('#dv-summary').fill('Abrechnung mit Nachzahlung.');
+  await d.locator('#dv-keywords').fill('Kundennummer 4711, Zitronenfalter');
+  await d.getByRole('button', { name: 'Save', exact: true }).click();
+  await d.getByText('Abrechnung mit Nachzahlung.').waitFor();
+  await d.getByText('Betrag überweisen', { exact: false }).first().waitFor();
+  const todoNow = (await api(d, `/api/docs/${todoDoc.id}`)).doc;
+  const homeDir = (await api(d, '/api/libraries')).find((l) => l.id === todoNow.library_id)?.path;
+  const mdFile = path.join(homeDir, todoNow.path.replace(/\.pdf$/, '.md'));
+  if (!fs.existsSync(mdFile) || !fs.readFileSync(mdFile, 'utf8').includes(`due: ${inThree}`)) problems.push(`sidecar: ${mdFile}`);
+  if ((await api(d, '/api/docs?q=zitronenfalter')).total !== 1) problems.push('keywords: not found by the search');
+  await d.goto(B + '/');
+  await d.getByRole('region', { name: 'To do' }).getByText('Betrag überweisen').waitFor();
+  await d.getByText('in 3 days').first().waitFor();
+  await shot(d, '50-home-todo');
+  await d.getByRole('button', { name: /Mark “Betrag überweisen” done/ }).click();
+  await d.getByText(/^Done: /).waitFor();
+  if ((await api(d, '/api/todo')).docs.some((x) => x.id === todoDoc.id)) problems.push('todo: still listed after "Done"');
+  log('to do ok');
+
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {
     await d.goto(B + '/settings/' + tab);
     await d.waitForTimeout(700);

@@ -1,6 +1,7 @@
 <script>
   import Thumb from './Thumb.svelte';
   import { formatDate, formatAmount, snippetParts, fileVersion } from '../lib/format.js';
+  import { dueLabel, overdue } from '../lib/docform.js';
   // selecting: a click (or Space) ticks the card instead of opening it
   // onopen: opens it somewhere else (the archive's side pane); true when it did
   // dragIds: what a drag carries (all selected ones when this card is among them)
@@ -23,6 +24,7 @@
   <Thumb id={doc.id} updated={fileVersion(doc)} />
   <span class="body">
     <span class="title">{doc.title || 'Untitled'}</span>
+    {#if doc.due && !doc.done_at}<span class="due" class:late={overdue(doc.due)} title={doc.action || 'Deadline'}>{dueLabel(doc.due)}</span>{/if}
     <span class="meta">{doc.sender || 'Unknown sender'}{#if doc.date} · {formatDate(doc.date)}{/if}</span>
     {#if doc.snippet}
       <span class="snip">{#each snippetParts(doc.snippet) as p}{#if p.hit}<mark>{p.text}</mark>{:else}{p.text}{/if}{/each}</span>
@@ -45,6 +47,8 @@
   .selected .tick { background: var(--accent); }
   .body { display: flex; flex-direction: column; gap: 2px; padding: 0 4px 4px; min-width: 0; }
   .title { font-weight: 600; font-size: 0.95rem; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .due { align-self: flex-start; font-size: 0.72rem; font-weight: 650; padding: 1px 7px; border-radius: 999px; background: var(--warn); color: var(--warn-ink); }
+  .due.late { background: #B3261E; color: #fff; }
   .meta { color: var(--muted); font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .snip { font-size: 0.8rem; color: var(--ink-2); line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; margin-top: 2px; }
 </style>

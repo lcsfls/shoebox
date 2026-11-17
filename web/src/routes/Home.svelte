@@ -13,12 +13,15 @@
   import Icon from '../components/Icon.svelte';
   import Thumb from '../components/Thumb.svelte';
   import Jobs from '../components/Jobs.svelte';
+  import { dueLabel, overdue } from '../lib/docform.js';
 
   let data = $state(null);
   let q = $state('');
   let fileInput = $state();
 
+  let todo = $state([]); // deadlines and things to do, from every library one can read
   async function load() {
+    api.get('/api/todo').then((r) => (todo = r.docs)).catch(() => {});
     try {
       data = await api.get('/api/overview');
       counts.set({ inbox: data.inbox, busy: data.busy, filed: data.filed, missing: data.missing });
@@ -32,6 +35,15 @@
     e.preventDefault();
     navigate('/archive' + (q.trim() ? '?q=' + encodeURIComponent(q.trim()) : ''));
   }
+
+  async function done(d) {
+    try {
+      await api.patch(`/api/docs/${d.id}`, { done: true });
+      todo = todo.filter((x) => x.id !== d.id);
+      toast(`Done: ${d.title || 'document'}`);
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  const libName = (id) => ($libraries.length > 1 ? $libraries.find((l) => l.id === id)?.name || '' : '');
 
   async function onFiles(e) {
     const files = [...e.target.files];
@@ -64,6 +76,24 @@
   {/if}
 
   <Jobs onChange={load} />
+
+  {#if todo.length}
+    <section aria-label="To do">
+      <div class="sec-head"><h2>To do</h2><span class="muted small">{todo.length}</span></div>
+      <ul class="todo">
+        {#each todo as d (d.id)}
+          <li class:late={overdue(d.due)} transition:fly={motion({ y: -6, duration: 160 })}>
+            <a href="/doc/{d.id}" class="what">
+              <strong>{d.action || d.title || 'Untitled'}</strong>
+              <span class="muted small">{d.action ? d.title : ''}{d.sender ? ` · ${d.sender}` : ''}{libName(d.library_id) ? ` · ${libName(d.library_id)}` : ''}</span>
+            </a>
+            {#if d.due}<span class="due">{dueLabel(d.due)}</span>{/if}
+            <button class="btn small" onclick={() => done(d)} aria-label="Mark “{d.action || d.title}” done"><Icon name="check" />Done</button>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 
   {#if data}
     {#if data.review.length}
@@ -117,6 +147,13 @@
 
 <style>
   .libtop { margin-bottom: 12px; }
+  .todo { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .todo li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .todo li.late { border-color: #B3261E; }
+  .todo .what { flex: 1; min-width: 0; display: flex; flex-direction: column; text-decoration: none; color: var(--ink); }
+  .todo .what > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .todo .due { font-size: 0.85rem; font-weight: 600; color: var(--warn-ink); background: var(--warn); padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .todo li.late .due { background: #B3261E; color: #fff; }
   .home { display: flex; flex-direction: column; gap: 20px; max-width: 1100px; }
   .search { display: flex; align-items: center; gap: 10px; padding: 0 14px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; color: var(--muted); }
   .search input { border: 0; background: transparent; min-height: 52px; padding: 0; }

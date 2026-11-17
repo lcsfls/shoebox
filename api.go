@@ -79,7 +79,10 @@ func (a *App) handleDocUpdate(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	if d.Status == "filed" {
+	// what is in the file name, the PDF's metadata or the .md next to it
+	inFile := p.Title != nil || p.Sender != nil || p.Date != nil || p.Tags != nil || p.AmountCents != nil || p.NoAmount ||
+		p.Summary != nil || p.Keywords != nil || p.Due != nil || p.Action != nil
+	if d.Status == "filed" && inFile {
 		// rename or move the file to match, and refresh its metadata
 		if err := a.fileDoc(r.Context(), id); err != nil {
 			fail(w, 500, "Saved, but the file could not be updated: "+err.Error())
@@ -128,6 +131,7 @@ func (a *App) handleDocDelete(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "Could not move the file to the trash: "+err.Error())
 			return
 		}
+		moveSidecar(src, dst)
 		if root, err := a.libPath(d.LibraryID); err == nil && d.Status != "inbox" {
 			removeEmptyDirs(root, filepath.Dir(src))
 		}
@@ -885,4 +889,36 @@ func spa(dist fs.FS) http.Handler {
 		r2.URL.Path = "/" + p
 		files.ServeHTTP(w, r2)
 	})
+}
+
+// handleTodo: what is to be done, from every library the account can read
+// (its Home too): documents with a deadline or an action that aren't
+// marked done, the most urgent first, those without a date after them.
+func (a *App) handleTodo(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	libs := a.userLibraries(u)
+	if len(libs) == 0 {
+		writeJSON(w, 200, map[string]any{"docs": []*Doc{}})
+		return
+	}
+	in := strings.TrimSuffix(strings.Repeat("?,", len(libs)), ",")
+	args := make([]any, len(libs))
+	for i, l := range libs {
+		args[i] = l.ID
+	}
+	rows, err := a.db.Query(`SELECT `+docCols+` FROM docs d LEFT JOIN senders s ON s.id = d.sender_id
+		WHERE d.library_id IN (`+in+`) AND d.status <> 'missing' AND d.done_at = '' AND (d.due_date <> '' OR d.action <> '')
+		ORDER BY d.due_date = '', d.due_date, d.created_at DESC LIMIT 100`, args...)
+	if err != nil {
+		fail(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+	docs := []*Doc{}
+	for rows.Next() {
+		if d, err := scanDoc(rows); err == nil {
+			docs = append(docs, d)
+		}
+	}
+	writeJSON(w, 200, map[string]any{"docs": docs})
 }

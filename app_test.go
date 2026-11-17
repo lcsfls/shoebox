@@ -956,3 +956,119 @@ func TestAIOnly(t *testing.T) {
 		t.Fatalf("fallback: %+v (%s)", d, j.Error)
 	}
 }
+
+func TestAIEnrich(t *testing.T) {
+	needTools(t, "tesseract", "qpdf", "pdftotext", "pdfinfo", "pdftoppm")
+	a := testApp(t)
+	do, session := testHTTP(t, a)
+	anna := session("/api/setup", map[string]string{"code": a.setupCode, "username": "anna", "password": "long-password-1"})
+	// the archive's own words: tags that exist in Family
+	for _, tag := range []string{"Strom", "Rechnung", "Versicherung", "Auto", "Steuer", "Bank", "Arzt", "Schule", "Miete", "Handy"} {
+		a.db.Exec(`INSERT INTO tags(library_id, name) VALUES(1, ?)`, tag)
+	}
+	var schemaSeen, refuseSchema bool
+	var lastPrompt string
+	ai := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]any
+		json.NewDecoder(r.Body).Decode(&in)
+		_, hasSchema := in["response_format"]
+		if hasSchema && refuseSchema {
+			http.Error(w, `{"error":"response_format not supported"}`, 400)
+			return
+		}
+		schemaSeen = schemaSeen || hasSchema
+		msgs := in["messages"].([]any)
+		if c, ok := msgs[0].(map[string]any)["content"].(string); ok {
+			lastPrompt = c
+		}
+		w.Header().Set("Content-Type", "application/json")
+		ans := map[string]any{"title": "Stromrechnung Oktober", "date": "2026-10-24", "sender": "Stadtwerke Musterstadt", "amount": 84.2,
+			"tags": []string{"strom", "Rechnung", "Fantasie"}, "new_tags": []string{"Energie"},
+			"keywords": []string{"Kundennummer 4711", "Abschlag", "Kundennummer 4711"},
+			"summary":  "Jahresabrechnung Strom mit 84,20 € Nachzahlung.", "due": "2026-11-30", "action": "Betrag überweisen"}
+		b, _ := json.Marshal(ans)
+		out, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": string(b)}}}})
+		w.Write(out)
+	}))
+	defer ai.Close()
+	s := a.settings()
+	s.AI = AISettings{Enabled: true, Fields: true, BaseURL: ai.URL, Model: "m", TimeoutSec: 30, MaxPages: 2}
+	s.Sidecar = true
+	a.saveSettings(s)
+
+	j := waitJob(t, a, scanJob(t, a, 1))
+	d, _ := a.getDoc(j.DocID)
+	if d == nil {
+		t.Fatalf("no document: %s", j.Error)
+	}
+	if !schemaSeen || !strings.Contains(lastPrompt, "EXISTING TAGS: ") || !strings.Contains(lastPrompt, "Today is ") {
+		t.Errorf("prompt or schema missing (schema %v):\n%s", schemaSeen, lastPrompt)
+	}
+	// tags only from the archive's words, spelled as there; no new ones with ten tags
+	if !containsFold(d.Tags, "Strom") || !containsFold(d.Tags, "Rechnung") || containsFold(d.Tags, "Fantasie") || containsFold(d.Tags, "Energie") {
+		t.Errorf("tags: %v", d.Tags)
+	}
+	if d.Summary == "" || len(d.Keywords) != 2 || d.Due != "2026-11-30" || d.Action != "Betrag überweisen" {
+		t.Errorf("enriched: summary %q keywords %v due %q action %q", d.Summary, d.Keywords, d.Due, d.Action)
+	}
+	if docs, _, _ := a.listDocs(DocQuery{Library: 1, Q: "abschlag", Status: "inbox"}); len(docs) != 1 {
+		t.Error("keywords are not searchable")
+	}
+
+	// to do: listed until marked done
+	_, todo, _ := do("GET", "/api/todo", nil, anna, 0)
+	if list := todo["docs"].([]any); len(list) != 1 || list[0].(map[string]any)["due"] != "2026-11-30" {
+		t.Errorf("todo: %v", todo)
+	}
+
+	// the .md next to the filed PDF, moved along with a new title, and to the trash with the PDF
+	if code, out, _ := do("POST", fmt.Sprintf("/api/docs/%d/file", d.ID), map[string]any{}, anna, 1); code != 200 {
+		t.Fatalf("file: %d %v", code, out)
+	}
+	d, _ = a.getDoc(d.ID)
+	p, _ := a.docFile(d)
+	md, err := os.ReadFile(sidecarPath(p))
+	if err != nil || !strings.Contains(string(md), `due: 2026-11-30`) || !strings.Contains(string(md), "Jahresabrechnung Strom") || !strings.Contains(string(md), `tags: ["`) {
+		t.Fatalf("sidecar %s: %v\n%s", sidecarPath(p), err, md)
+	}
+	title := "Strom Jahresabrechnung"
+	do("PATCH", fmt.Sprintf("/api/docs/%d", d.ID), map[string]any{"title": title}, anna, 1)
+	d, _ = a.getDoc(d.ID)
+	p2, _ := a.docFile(d)
+	if p2 == p || !fileExists(sidecarPath(p2)) || fileExists(sidecarPath(p)) {
+		t.Errorf("sidecar after renaming: %s (old %s)", sidecarPath(p2), sidecarPath(p))
+	}
+	if code, _, _ := do("PATCH", fmt.Sprintf("/api/docs/%d", d.ID), map[string]any{"done": true}, anna, 1); code != 200 {
+		t.Error("marking done failed")
+	}
+	_, todo, _ = do("GET", "/api/todo", nil, anna, 0)
+	if list := todo["docs"].([]any); len(list) != 0 {
+		t.Errorf("done, but still to do: %v", list)
+	}
+
+	// asking again later, from a server that can't take a schema: asked again without one
+	refuseSchema = true
+	empty := ""
+	a.patchDoc(d.ID, DocPatch{Summary: &empty})
+	if code, out, _ := do("POST", fmt.Sprintf("/api/docs/%d/enrich", d.ID), nil, anna, 1); code != 200 || out["doc"].(map[string]any)["summary"] == "" {
+		t.Errorf("enrich again: %d %v", code, out)
+	}
+	if code, _, _ := do("DELETE", fmt.Sprintf("/api/docs/%d", d.ID), nil, anna, 1); code != 200 || fileExists(sidecarPath(p2)) {
+		t.Errorf("the .md stayed after deleting: %d", code)
+	}
+}
+
+func TestParseEnrich(t *testing.T) {
+	// a young archive: new tags are taken; a deadline before the document's date is not
+	f, err := parseEnrich("```json\n{\"title\":\"Kündigungsbestätigung\",\"date\":\"2026-05-02\",\"sender\":\"Fitness\",\"amount\":null,"+
+		"\"tags\":[\"Vertrag\"],\"new_tags\":[\"Sport\",\"Vertrag\",\"Kündigung\"],\"keywords\":[],\"summary\":\"\",\"due\":\"2026-04-01\",\"action\":\"\"}\n```", []string{"Vertrag"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(f.Tags, ",") != "Vertrag,Sport,Kündigung" || f.Due != "" || f.AmountCents != nil {
+		t.Errorf("young archive: %+v", f)
+	}
+	if _, err := parseEnrich("Sorry, I can't read that.", nil); err == nil {
+		t.Error("no JSON, but no error")
+	}
+}

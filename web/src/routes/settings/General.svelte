@@ -32,6 +32,8 @@
       <span class="hint">Placeholders: {'{year} {month} {day} {date} {sender} {title} {tags} {id}'}. Slashes make folders.</span>
     </label>
     <p class="small">Example: <span class="mono">{previewPath(s.pattern, sample)}</span></p>
+    <label class="check"><input type="checkbox" bind:checked={s.sidecar} />
+      <span>A .md file next to every filed PDF<span class="hint">Same name, with title, sender, date, tags, keywords, the summary, the deadline and the notes, readable without Shoebox (any file manager, Obsidian …). It moves along when the PDF is renamed or moved. Written when a document is filed or saved.</span></span></label>
     <label class="check"><input type="checkbox" bind:checked={s.learn} />
       <span>Suggest tags and senders from similar documents<span class="hint">A new letter gets the tags that most of the closest filed documents share. They show with a dashed outline in Review.</span></span></label>
     <label class="field">Stamps

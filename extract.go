@@ -20,6 +20,10 @@ type Facts struct {
 	Rule        string
 	Matched     bool     // a rule or a known sender matched
 	Learned     []string // tags suggested by similar filed documents
+	Summary     string   // from the AI model
+	Keywords    []string
+	Due         string
+	Action      string
 }
 
 var months = map[string]int{

@@ -10,6 +10,7 @@
   import Jobs from '../components/Jobs.svelte';
   import Stamps from '../components/Stamps.svelte';
   import MoveTo from '../components/MoveTo.svelte';
+  import { formFromDoc, patchFromForm } from '../lib/docform.js';
   import { stampConfig } from '../lib/stamps.js';
 
   let { id = 0 } = $props();
@@ -68,7 +69,7 @@
       senders = s.map((x) => x.name);
       tags = t.map((x) => x.name);
       pattern = st.settings.pattern;
-      form = { title: doc.title, date: doc.date, sender: doc.sender, amount: amountInput(doc.amount_cents), tags: [...doc.tags], notes: doc.notes };
+      form = formFromDoc(doc);
       original = JSON.stringify(form);
       learned = [];
       api.get(`/api/docs/${docId}/learned`).then((l) => (learned = l.tags.filter((t) => doc.tags.includes(t)))).catch(() => {});
@@ -82,11 +83,7 @@
     else loadList().catch((e) => (error = e.message));
   });
 
-  function patch() {
-    const cents = parseAmount(form.amount);
-    return { title: form.title, date: form.date || '', sender: form.sender, tags: form.tags, notes: form.notes,
-      amount_cents: cents ?? undefined, no_amount: cents == null };
-  }
+  const patch = () => patchFromForm(form);
 
   async function fileIt() {
     busy = true;

@@ -13,6 +13,23 @@
   let busy = $state(false);
   let test = $state(null);
   let testing = $state(false);
+  // the archive from before: let the model read the documents without a summary
+  let run = $state(null);
+  let poller;
+  async function runState() {
+    clearTimeout(poller);
+    try { run = await api.get('/api/ai/enrich'); } catch { run = null; }
+    if (run?.running) poller = setTimeout(runState, 3000);
+  }
+  async function startRun() {
+    try { await api.post('/api/ai/enrich'); runState(); } catch (err) { toast(err.message, 'error', 6000); }
+  }
+  async function stopRun() {
+    await api.post('/api/ai/enrich?stop=1').catch(() => {});
+    runState();
+  }
+  onMount(runState);
+  $effect(() => () => clearTimeout(poller));
 
   onMount(async () => {
     const r = await loadSettings();
@@ -87,7 +104,7 @@
     <label class="check"><input type="checkbox" bind:checked={s.ai.only} />
       <span>Read with the model only, skip Tesseract<span class="hint">Faster on a small server, and the model's reading is used throughout. The PDF then has no hidden text layer: text can't be selected or searched in other PDF viewers (Shoebox's search still finds everything). When the model fails, Tesseract steps in.</span></span></label>
     <label class="check"><input type="checkbox" bind:checked={s.ai.fields} />
-      <span>Also ask for title, date, sender and amount<span class="hint">Sorting rules still win. Needs a model that can follow instructions; pure OCR models can't.</span></span></label>
+      <span>Also let it sort: title, date, sender, amount, tags, keywords, a summary and deadlines<span class="hint">Tags come from the library's own tags, with similar filed letters as examples, so there is nothing to train. Deadlines show on the start page under “To do”. Sorting rules still win. Needs a model that follows instructions (e.g. Qwen3-VL 8B Instruct, Gemma 3 12B); pure OCR models can't.</span></span></label>
     <label class="field">Prompt for reading a page<textarea bind:value={s.ai.prompt} rows="3" placeholder={defaultPrompt}></textarea><span class="hint">Empty uses the default. Some OCR models expect their own prompt; see the model's page.</span></label>
     <div class="two">
       <label class="field">Pages per document<input type="number" min="1" max="50" bind:value={s.ai.max_pages} /></label>
@@ -105,6 +122,23 @@
       {/if}
     {/if}
   </form>
+
+  {#if s.ai.enabled && s.ai.fields}
+    <div class="card sec">
+      <h2>Documents from before</h2>
+      {#if run}
+        {#if run.running}
+          <p>The model is reading: {run.done + run.failed} of {run.total}{run.failed ? `, ${run.failed} failed` : ''}.</p>
+          <progress max={run.total} value={run.done + run.failed}></progress>
+          <div><button class="btn" onclick={stopRun}>Stop</button></div>
+        {:else}
+          <p class="muted">{run.pending ? `${run.pending} document${run.pending === 1 ? '' : 's'} in this library have no summary yet (from before the model, or from Paperless). The model can read them one after the other in the background: summary, keywords, deadline and fitting tags. What someone set by hand stays.` : 'Every document in this library has a summary.'}</p>
+          {#if run.total && !run.running}<p class="small">Last run: {run.done} read{run.failed ? `, ${run.failed} failed (${run.error})` : ''}.</p>{/if}
+          {#if run.pending}<div><button class="btn primary" onclick={startRun}>Read {run.pending} document{run.pending === 1 ? '' : 's'}</button></div>{/if}
+        {/if}
+      {/if}
+    </div>
+  {/if}
 {/if}
 
 <style>

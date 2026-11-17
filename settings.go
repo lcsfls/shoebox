@@ -37,6 +37,7 @@ type Settings struct {
 	UpdateHour   int         `json:"update_hour"` // at this hour of the night
 	AI           AISettings  `json:"ai"`
 	Metrics      MetricsPush `json:"metrics"` // send the statistics to a server
+	Sidecar      bool        `json:"sidecar"` // a .md with summary, tags and deadline next to every filed PDF
 }
 
 func defaultSettings() Settings {

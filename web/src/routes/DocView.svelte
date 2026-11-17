@@ -10,6 +10,7 @@
   import PageEditor from '../components/PageEditor.svelte';
   import Stamps from '../components/Stamps.svelte';
   import MoveTo from '../components/MoveTo.svelte';
+  import { formFromDoc, patchFromForm, dueLabel, overdue } from '../lib/docform.js';
   import { stampConfig } from '../lib/stamps.js';
   import { recall, more } from '../lib/browse.js';
 
@@ -29,6 +30,21 @@
   let error = $state('');
   let stamps = $state([]);
   let stampCfg = $state(stampConfig(null));
+  let aiOn = $state(false);
+  let asking = $state(false);
+
+  // ask the AI model again: summary, keywords, deadline, fitting tags
+  async function askAI() {
+    asking = true;
+    try {
+      doc = (await api.post(`/api/docs/${id}/enrich`)).doc;
+      resetForm();
+      toast('The AI model read it again');
+    } catch (err) { toast(err.message, 'error', 6000); } finally { asking = false; }
+  }
+  async function setDone(done) {
+    try { doc = (await api.patch(`/api/docs/${id}`, { done })).doc; } catch (err) { toast(err.message, 'error'); }
+  }
 
   async function load() {
     try {
@@ -36,7 +52,7 @@
       doc = d.doc;
       text = d.text;
       stamps = d.stamps || [];
-      if (st) stampCfg = stampConfig(st.settings);
+      if (st) { stampCfg = stampConfig(st.settings); aiOn = !!(st.settings.ai?.enabled && st.settings.ai?.base_url && st.settings.ai?.model); }
       senders = s.map((x) => x.name);
       tags = t.map((x) => x.name);
       resetForm();
@@ -45,7 +61,7 @@
     }
   }
   function resetForm() {
-    form = { title: doc.title, date: doc.date, sender: doc.sender, amount: amountInput(doc.amount_cents), tags: [...doc.tags], notes: doc.notes };
+    form = formFromDoc(doc);
   }
   $effect(() => { id; editing = false; load(); });
 
@@ -62,7 +78,7 @@
   // leaving the form: ask only when something was changed
   function mayLeave() {
     if (!editing || !doc) return true;
-    const was = { title: doc.title, date: doc.date, sender: doc.sender, amount: amountInput(doc.amount_cents), tags: [...doc.tags], notes: doc.notes };
+    const was = formFromDoc(doc);
     return JSON.stringify(form) === JSON.stringify(was) || confirm('Discard the changes?');
   }
   function go(to) {
@@ -89,10 +105,8 @@
   async function save(e) {
     e.preventDefault();
     busy = true;
-    const cents = parseAmount(form.amount);
     try {
-      const r = await api.patch(`/api/docs/${id}`, { title: form.title, date: form.date || '', sender: form.sender, tags: form.tags,
-        notes: form.notes, amount_cents: cents ?? undefined, no_amount: cents == null });
+      const r = await api.patch(`/api/docs/${id}`, patchFromForm(form));
       doc = r.doc;
       editing = false;
       toast('Saved');
@@ -164,16 +178,25 @@
           </form>
         {:else}
           <div class="card box stack">
+            {#if doc.summary}<p class="summary">{doc.summary}</p>{/if}
+            {#if doc.due || doc.action}
+              <div class="todo" class:done={doc.done_at} class:late={!doc.done_at && overdue(doc.due)}>
+                <span><strong>{doc.action || 'To do'}</strong>{#if doc.due} · {formatDate(doc.due)}{#if !doc.done_at} ({dueLabel(doc.due)}){/if}{/if}</span>
+                {#if mayEdit}<button class="btn small" onclick={() => setDone(!doc.done_at)}>{doc.done_at ? 'Not done yet' : 'Mark done'}</button>{/if}
+              </div>
+            {/if}
             <dl>
               <dt>Sender</dt><dd>{doc.sender || '—'}</dd>
               <dt>Date</dt><dd>{doc.date ? formatDate(doc.date) : '—'}</dd>
               {#if doc.amount_cents != null}<dt>Amount</dt><dd>{formatAmount(doc.amount_cents)}</dd>{/if}
               <dt>Tags</dt><dd>{#if doc.tags.length}<span class="chips">{#each doc.tags as t}<a class="chip" data-c={colorFor(t, $tagInfo)} href="/archive?tag={encodeURIComponent(t)}">{t}</a>{/each}</span>{:else}—{/if}</dd>
               {#each Object.entries(doc.fields || {}) as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}
+              {#if doc.keywords?.length}<dt>Keywords</dt><dd>{doc.keywords.join(' · ')}</dd>{/if}
               {#if doc.notes}<dt>Notes</dt><dd class="pre">{doc.notes}</dd>{/if}
             </dl>
             <div class="row">
               {#if mayEdit}<button class="btn" onclick={() => (editing = true)} title="Edit (E)"><Icon name="edit" />Edit</button>{/if}
+              {#if mayEdit && aiOn}<button class="btn" onclick={askAI} disabled={asking} title="Summary, keywords, deadline and fitting tags from the AI model">{asking ? 'Reading …' : 'Ask the AI'}</button>{/if}
               <a class="btn" href="/api/docs/{doc.id}/pdf?dl=1" download><Icon name="download" />Download</a>
               <a class="btn" href="/api/docs/{doc.id}/pdf" target="_blank" rel="noopener"><Icon name="file" />PDF</a>
             </div>
@@ -220,6 +243,11 @@
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chips .chip { text-decoration: none; }
   .info { display: flex; flex-direction: column; gap: 8px; }
+  .summary { margin: 0; font-size: 1.02rem; line-height: 1.45; }
+  .todo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: var(--warn); color: var(--warn-ink); }
+  .todo.late { background: color-mix(in srgb, #B3261E 18%, var(--card)); color: var(--ink); }
+  .todo.done { background: var(--field); color: var(--muted); text-decoration: line-through; }
+  .todo.done .btn { text-decoration: none; }
   .path { word-break: break-all; }
   .ocr { white-space: pre-wrap; font-family: var(--mono); font-size: 0.78rem; max-height: 50vh; overflow: auto; background: var(--bg); padding: 10px; border-radius: 8px; margin: 0; }
   /* two columns where there is room: the full page, or the archive's side pane */

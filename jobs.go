@@ -278,6 +278,7 @@ func (a *App) processIncoming(ctx context.Context, job *Job, step func(string)) 
 		Status: "inbox", SHA256: srcSHA, FileSHA: fsha, Title: title, Sender: f.Sender, Date: f.Date,
 		AmountCents: f.AmountCents, Pages: pdfPages(ctx, out), Size: size, Source: job.Kind, OCR: ocr,
 		Rule: f.Rule, Tags: f.Tags, Text: text, AddedBy: job.userID, OCRMillis: ocrMillis, LibraryID: job.LibraryID,
+		Summary: f.Summary, Keywords: f.Keywords, Due: f.Due, Action: f.Action,
 	}
 	id, err := a.insertDoc(n)
 	if err != nil {
@@ -315,6 +316,7 @@ func mergeAI(f *Facts, ai *Facts) {
 			f.Tags = append(f.Tags, t)
 		}
 	}
+	f.Summary, f.Keywords, f.Due, f.Action = ai.Summary, ai.Keywords, ai.Due, ai.Action
 	if f.Sender != "" && f.Date != "" {
 		f.Matched = true
 	}
@@ -457,6 +459,7 @@ func (a *App) fileDoc(ctx context.Context, id int64) error {
 		if err := moveFile(src, dst); err != nil {
 			return fmt.Errorf("can't write to the archive: %w", err)
 		}
+		moveSidecar(src, dst)
 		removeEmptyDirs(root, filepath.Dir(src))
 	}
 	if d.Status != "inbox" {
@@ -472,6 +475,9 @@ func (a *App) fileDoc(ctx context.Context, id int64) error {
 	_, err = a.db.Exec(`UPDATE docs SET status = 'filed', path = ?, file_sha = ?, size = ?, mtime = ?, updated_at = ? WHERE id = ?`,
 		rel, fsha, size, mtime, now(), id)
 	a.dropCache(id)
+	if err == nil {
+		a.writeSidecar(dst, id)
+	}
 	return err
 }
 
@@ -618,6 +624,7 @@ func (a *App) processFolderFile(ctx context.Context, lib int64, rel string, step
 		Status: "filed", Path: rel, SHA256: srcSHA, FileSHA: fsha, Title: title, Sender: sender, Date: date,
 		AmountCents: f.AmountCents, Pages: pdfPages(ctx, abs), Size: size, MTime: st.ModTime().UnixNano(),
 		Source: "folder", OCR: ocr, Rule: f.Rule, Tags: tags, Text: text, OCRMillis: ocrMillis, LibraryID: lib,
+		Summary: f.Summary, Keywords: f.Keywords, Due: f.Due, Action: f.Action,
 	})
 }
 
