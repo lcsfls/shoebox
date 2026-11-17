@@ -14,6 +14,8 @@ type AISettings struct {
 	Model      string `json:"model"`       // e.g. the Baidu OCR model as served by vLLM
 	Fields     bool   `json:"fields"`      // also ask the model for title, date, sender, amount
 	Only       bool   `json:"only"`        // the model reads alone: no Tesseract, no text layer in the PDF (Tesseract only when the model fails)
+	EmbedModel string `json:"embed_model"` // semantic search: an embedding model, e.g. bge-m3; empty = off
+	EmbedURL   string `json:"embed_url"`   // its server when it isn't BaseURL
 	Prompt     string `json:"prompt"`      // OCR prompt; empty = default
 	TimeoutSec int    `json:"timeout_sec"` // per page
 	MaxPages   int    `json:"max_pages"`   // pages per document sent to the model
@@ -115,6 +117,8 @@ func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	s.Workers = min(max(s.Workers, 1), 4)
 	s.WatchMinutes = min(max(s.WatchMinutes, 0), 1440)
 	s.AI.BaseURL = strings.TrimRight(clean(s.AI.BaseURL, 300), "/")
+	s.AI.EmbedModel = clean(s.AI.EmbedModel, 200)
+	s.AI.EmbedURL = strings.TrimRight(clean(s.AI.EmbedURL, 300), "/")
 	s.AI.Model = clean(s.AI.Model, 200)
 	s.AI.Prompt = clean(s.AI.Prompt, 4000)
 	s.AI.TimeoutSec = min(max(s.AI.TimeoutSec, 10), 1800)
@@ -143,5 +147,6 @@ func (a *App) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.watcher.kick()
+	a.kickEmbedder() // a new embedding model: the documents are indexed again
 	writeJSON(w, 200, map[string]any{"ok": true})
 }

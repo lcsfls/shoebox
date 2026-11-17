@@ -15,6 +15,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1070,5 +1071,82 @@ func TestParseEnrich(t *testing.T) {
 	}
 	if _, err := parseEnrich("Sorry, I can't read that.", nil); err == nil {
 		t.Error("no JSON, but no error")
+	}
+}
+
+func TestSemanticSearch(t *testing.T) {
+	a := testApp(t)
+	do, session := testHTTP(t, a)
+	anna := session("/api/setup", map[string]string{"code": a.setupCode, "username": "anna", "password": "long-password-1"})
+	// a stand-in embedding model that knows three topics
+	topics := [][]string{{"kfz", "fahrzeug", "auto", "haftpflicht", "wagen"}, {"strom", "energie", "kwh"}, {"zahn", "arzt", "behandlung"}}
+	calls := 0
+	emb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var in struct {
+			Model string   `json:"model"`
+			Input []string `json:"input"`
+		}
+		json.NewDecoder(r.Body).Decode(&in)
+		var data []any
+		for i, text := range in.Input {
+			v := []float64{0, 0, 0, 0.15}
+			low := strings.ToLower(text)
+			for k, words := range topics {
+				for _, wd := range words {
+					if strings.Contains(low, wd) {
+						v[k]++
+					}
+				}
+			}
+			data = append(data, map[string]any{"index": i, "embedding": v})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	defer emb.Close()
+	s := a.settings()
+	s.AI = AISettings{Enabled: true, BaseURL: emb.URL, EmbedModel: "emb", TimeoutSec: 30}
+	a.saveSettings(s)
+
+	car, _ := a.insertDoc(NewDoc{Status: "filed", Path: "2026/01/a.pdf", Title: "Beitragsrechnung", Date: "2026-01-10", LibraryID: 1,
+		Text: "Ihre Kfz-Haftpflichtversicherung für den Wagen M-AB 123. Bitte zahlen Sie den Beitrag."})
+	power, _ := a.insertDoc(NewDoc{Status: "filed", Path: "2026/02/b.pdf", Title: "Stromrechnung", Date: "2026-02-10", LibraryID: 1, Text: "Verbrauch 2400 kWh Strom"})
+	a.insertDoc(NewDoc{Status: "filed", Path: "2026/03/c.pdf", Title: "Zahnarzt", Date: "2026-03-10", LibraryID: 1, Text: "Behandlung Zahnreinigung"})
+	if n, err := a.embedSome(context.Background(), a.settings().AI, 20); n != 3 || err != nil {
+		t.Fatalf("indexed %d: %v", n, err)
+	}
+	search := func(q string) []any {
+		_, out, _ := do("GET", "/api/docs?sort=relevance&q="+url.QueryEscape(q), nil, anna, 1)
+		return out["docs"].([]any)
+	}
+	// a word that isn't in the letter: found by meaning, with the closest piece
+	got := search("Fahrzeug")
+	if len(got) == 0 || int64(got[0].(map[string]any)["id"].(float64)) != car || got[0].(map[string]any)["why"] != "meaning" || got[0].(map[string]any)["snippet"] == "" {
+		t.Fatalf("Fahrzeug: %v", got)
+	}
+	for _, d := range got {
+		if strings.Contains(fmt.Sprint(d.(map[string]any)["title"]), "Zahnarzt") {
+			t.Error("an unrelated document came along")
+		}
+	}
+	if _, out, _ := do("GET", "/api/docs?sort=relevance&exact=1&q=Fahrzeug", nil, anna, 1); out["total"] != 0.0 {
+		t.Errorf("full-text alone found %v", out["total"])
+	}
+	// words and meaning both: first
+	if got := search("Strom"); len(got) == 0 || int64(got[0].(map[string]any)["id"].(float64)) != power || got[0].(map[string]any)["why"] != "both" {
+		t.Errorf("Strom: %v", got)
+	}
+	// the other filters still apply
+	if _, out, _ := do("GET", "/api/docs?sort=relevance&year=2025&q=Fahrzeug", nil, anna, 1); out["total"] != 0.0 {
+		t.Errorf("year filter ignored: %v", out)
+	}
+	// an edit makes the vectors again
+	title := "Kfz Beitrag 2026"
+	a.patchDoc(car, DocPatch{Title: &title})
+	if n, _ := a.embedSome(context.Background(), a.settings().AI, 20); n != 1 {
+		t.Errorf("after an edit %d documents indexed again", n)
+	}
+	if _, st, _ := do("GET", "/api/semantic", nil, anna, 0); st["done"] != 3.0 || st["total"] != 3.0 {
+		t.Errorf("status: %v", st)
 	}
 }

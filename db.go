@@ -194,6 +194,14 @@ var migrations = []string{
 	ALTER TABLE docs ADD COLUMN action TEXT NOT NULL DEFAULT '';
 	ALTER TABLE docs ADD COLUMN done_at TEXT NOT NULL DEFAULT '';
 	CREATE INDEX docs_due ON docs(library_id, due_date);`,
+	// 8: semantic search: each document in pieces, each piece as a vector from an embedding model
+	`CREATE TABLE doc_chunks(
+		doc_id INTEGER NOT NULL REFERENCES docs(id) ON DELETE CASCADE,
+		idx INTEGER NOT NULL,
+		text TEXT NOT NULL,
+		vec BLOB NOT NULL,
+		PRIMARY KEY(doc_id, idx));
+	ALTER TABLE docs ADD COLUMN embed_model TEXT NOT NULL DEFAULT '';`,
 }
 
 func migrate(db *sql.DB) error {
@@ -289,6 +297,7 @@ type Doc struct {
 	Action      string            `json:"action"`   // what has to be done, e.g. "überweisen"
 	DoneAt      string            `json:"done_at"`  // when it was marked done
 	Snippet     string            `json:"snippet,omitempty"`
+	Why         string            `json:"why,omitempty"` // in a semantic search: found by text, meaning or both
 	CreatedAt   string            `json:"created_at"`
 	UpdatedAt   string            `json:"updated_at"`
 	SHA256      string            `json:"-"`
@@ -510,7 +519,11 @@ func (a *App) insertDoc(n NewDoc) (int64, error) {
 	if err := reindex(tx, id, &n.Text); err != nil {
 		return 0, err
 	}
-	return id, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	a.kickEmbedder()
+	return id, nil
 }
 
 // DocPatch is an edit from the review or document screen.
@@ -588,11 +601,15 @@ func (a *App) patchDoc(id int64, p DocPatch) error {
 			return err
 		}
 	}
-	tx.Exec(`UPDATE docs SET updated_at = ? WHERE id = ?`, now(), id)
+	tx.Exec(`UPDATE docs SET updated_at = ?, embed_model = '' WHERE id = ?`, now(), id) // its vectors are made again
 	if err := reindex(tx, id, nil); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	a.kickEmbedder()
+	return nil
 }
 
 func nullID(id int64) any {
@@ -659,6 +676,7 @@ type DocQuery struct {
 	Library                              int64 // required: one library at a time
 	Q, Status, Year, Month, Sender, Sort string
 	Tags                                 []string // all of them
+	IDs                                  []any    // only these documents (semantic search)
 	Limit, Offset                        int
 }
 
@@ -692,6 +710,10 @@ func (a *App) listDocs(f DocQuery) ([]*Doc, int, error) {
 			where = append(where, `d.doc_date LIKE ?`)
 			args = append(args, p+"%")
 		}
+	}
+	if len(f.IDs) > 0 {
+		where = append(where, `d.id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(f.IDs)), ",")+`)`)
+		args = append(args, f.IDs...)
 	}
 	for _, tag := range f.Tags {
 		where = append(where, `EXISTS (SELECT 1 FROM doc_tags dt JOIN tags t ON t.id = dt.tag_id WHERE dt.doc_id = d.id AND t.name = ?)`)

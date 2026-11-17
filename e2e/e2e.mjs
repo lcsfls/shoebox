@@ -572,6 +572,34 @@ try {
   if ((await api(d, '/api/todo')).docs.some((x) => x.id === todoDoc.id)) problems.push('todo: still listed after "Done"');
   log('to do ok');
 
+  // search by meaning: a stand-in embedding model that knows "Strom" and "Energie" belong together
+  const topics = [['strom', 'energie', 'kwh'], ['miete', 'nebenkosten', 'wohnung'], ['steuer', 'finanzamt']];
+  const embSrv = http.createServer((q, res) => {
+    let b = '';
+    q.on('data', (c) => (b += c));
+    q.on('end', () => {
+      const input = JSON.parse(b).input;
+      const data = input.map((t, i) => ({ index: i, embedding: [...topics.map((ws) => ws.filter((w) => t.toLowerCase().includes(w)).length), 0.15] }));
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ data }));
+    });
+  });
+  await new Promise((r) => embSrv.listen(18003, '127.0.0.1', r));
+  const setAI = async (ai) => {
+    const cur = (await api(d, '/api/settings')).settings;
+    await api(d, '/api/settings', { method: 'PUT', body: JSON.stringify({ ...cur, ai: { ...cur.ai, ...ai } }) });
+  };
+  await setAI({ enabled: true, base_url: 'http://127.0.0.1:18003', model: 'none', embed_model: 'stand-in' });
+  await until(d, async () => { const st = await api(d, '/api/semantic'); return st.total > 0 && st.done === st.total; }, 'the documents to be indexed', 60000);
+  await d.goto(B + '/archive?q=Energieversorger');
+  await d.getByText('similar meaning').first().waitFor();
+  const sem = await api(d, '/api/docs?sort=relevance&q=Energieversorger');
+  if (!sem.docs.length || !sem.docs.every((x) => /strom/i.test(x.title + x.snippet))) problems.push('semantic: ' + JSON.stringify(sem.docs.map((x) => [x.title, x.why])));
+  await shot(d, '51-archive-semantic');
+  await setAI({ enabled: false, embed_model: '' });
+  embSrv.close();
+  log('semantic search ok');
+
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {
     await d.goto(B + '/settings/' + tab);
     await d.waitForTimeout(700);

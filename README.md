@@ -26,7 +26,7 @@ No Redis, no Celery, no PostgreSQL: one Go binary with a SQLite index, Tesseract
 - **Pages afterwards.** Reorder, turn, remove or re-crop the pages of a document; the first version is kept.
 - **A plain folder you own.** `archive/family/2026/10/2026-10-24_Stadtwerke_Stromrechnung.pdf`. Title, sender, tags and date are also written into the PDF itself, so the folder makes sense without Shoebox.
 - **The folder works both ways.** Copy a PDF into the archive (for example straight onto the NAS into `family/2026/01`) and Shoebox adds it to the library, adds a text layer if it has none, and dates it by its folder. Files you move or delete there are followed.
-- **Search** across the text, title, sender and tags, with word beginnings (`strom` finds “Stromrechnung”). Browse by year and month, tag or sender.
+- **Search** across the text, title, sender, tags, keywords and summary, with word beginnings (`strom` finds “Stromrechnung”), and by meaning with an embedding model (“Fahrzeug” finds the “Kfz-Versicherung”). Browse by year and month, tag or sender.
 - **Move over from Paperless-ngx** in a few clicks: documents, tags, correspondents, document types, dates, notes, custom fields and matching rules, through its API. Paperless is only read; you can test with 50 documents and run it again.
 - **Stamps.** “Eingang” / “Received” and “Bezahlt” / “Paid” with the date, burned into the PDF where the page has room; the unstamped version is kept.
 - **Write letters.** DIN 5008 letters (form A or B, German or English) with your letterhead, logo and footer, a live preview, print, and on *Finish* a copy goes into the archive.
@@ -113,6 +113,10 @@ By default Tesseract keeps making the searchable PDF and the model's text is use
 |---|---|---|
 | **PaddleOCR-VL 1.6** (Baidu, 0.9 B) | the best plain reading for its size, little GPU memory; it only reads, so leave *Also ask for title …* off | `vllm serve PaddlePaddle/PaddleOCR-VL-1.6 --trust-remote-code --port 8000` (vLLM 0.11.1 or newer); set the prompt to `OCR:` |
 | **Qwen3-VL 8B Instruct** | reads well and also fills in title, date, sender and amount | Ollama: `ollama pull qwen3-vl:8b-instruct` (about 6 GB at 4 bit), address `http://gpu-box:11434/v1`; or `vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8000` |
+
+**Search by meaning:** enter an embedding model (and its server, if it isn't the one above). Shoebox then indexes every document in the background, in pieces, and the search also finds what is meant: “Fahrzeug” finds the “Kfz-Versicherung”. Hits by words and by meaning are mixed; those found only by meaning say so. A good choice is **bge-m3** (multilingual, `ollama pull bge-m3`, about 1.2 GB, runs on the CPU too); changing the model indexes everything again.
+
+**With 12 GB of graphics memory**, Ollama holds Qwen3-VL 8B Instruct (about 6 GB at 4 bit) and bge-m3 (about 1.2 GB) side by side: one server for reading, sorting and search by meaning.
 
 On a smaller graphics card the 2 B model (`qwen3-vl:2b`, its instruct tag) can be enough for printed letters. Take the *instruct* variants: the others think out loud before they answer, which is slow and ends up in the text. For a vLLM server the address is `http://gpu-box:8000/v1`.
 

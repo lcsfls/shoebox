@@ -24,6 +24,7 @@
   <Thumb id={doc.id} updated={fileVersion(doc)} />
   <span class="body">
     <span class="title">{doc.title || 'Untitled'}</span>
+    {#if doc.why === 'meaning'}<span class="why" title="Found by meaning, not by the words">similar meaning</span>{/if}
     {#if doc.due && !doc.done_at}<span class="due" class:late={overdue(doc.due)} title={doc.action || 'Deadline'}>{dueLabel(doc.due)}</span>{/if}
     <span class="meta">{doc.sender || 'Unknown sender'}{#if doc.date} · {formatDate(doc.date)}{/if}</span>
     {#if doc.snippet}
@@ -47,6 +48,7 @@
   .selected .tick { background: var(--accent); }
   .body { display: flex; flex-direction: column; gap: 2px; padding: 0 4px 4px; min-width: 0; }
   .title { font-weight: 600; font-size: 0.95rem; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .why { align-self: flex-start; font-size: 0.72rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px dashed var(--line-strong); color: var(--muted); }
   .due { align-self: flex-start; font-size: 0.72rem; font-weight: 650; padding: 1px 7px; border-radius: 999px; background: var(--warn); color: var(--warn-ink); }
   .due.late { background: #B3261E; color: #fff; }
   .meta { color: var(--muted); font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

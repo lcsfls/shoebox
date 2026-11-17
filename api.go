@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -48,8 +49,21 @@ func (a *App) handleDocs(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
-	docs, total, err := a.listDocs(DocQuery{Library: lib, Q: q.Get("q"), Status: q.Get("status"), Year: q.Get("year"), Month: q.Get("month"),
-		Tags: splitTags(q["tag"]), Sender: q.Get("sender"), Sort: q.Get("sort"), Limit: limit, Offset: offset})
+	f := DocQuery{Library: lib, Q: q.Get("q"), Status: q.Get("status"), Year: q.Get("year"), Month: q.Get("month"),
+		Tags: splitTags(q["tag"]), Sender: q.Get("sender"), Sort: q.Get("sort"), Limit: limit, Offset: offset}
+	var docs []*Doc
+	var total int
+	var err error
+	// sorted by best match with an embedding model set up: by words and by meaning
+	if strings.TrimSpace(f.Q) != "" && f.Sort == "relevance" && q.Get("exact") == "" && a.settings().AI.embedOn() {
+		docs, total, err = a.semanticSearch(r.Context(), f)
+		if err != nil {
+			log.Printf("semantic search: %v (full-text only)", err)
+		}
+	}
+	if docs == nil {
+		docs, total, err = a.listDocs(f)
+	}
 	if err != nil {
 		fail(w, 400, "Search failed: "+err.Error())
 		return
@@ -139,6 +153,8 @@ func (a *App) handleDocDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	a.db.Exec(`DELETE FROM docs WHERE id = ?`, d.ID)
 	a.db.Exec(`DELETE FROM docs_fts WHERE rowid = ?`, d.ID)
+	a.db.Exec(`DELETE FROM doc_chunks WHERE doc_id = ?`, d.ID)
+	a.vectors.changed()
 	a.dropCache(d.ID)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }

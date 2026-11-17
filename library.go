@@ -639,6 +639,7 @@ func (a *App) handleDocMove(w http.ResponseWriter, r *http.Request) {
 		removeEmptyDirs(oldRoot, filepath.Dir(src))
 	}
 	a.dropCache(d.ID)
+	a.vectors.changed() // its vectors now belong to the other library
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 

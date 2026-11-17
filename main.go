@@ -50,7 +50,9 @@ type App struct {
 	metricsLast time.Time
 	metricsErr  string
 
-	enrich enrichRun // the AI model going through older documents
+	enrich    enrichRun // the AI model going through older documents
+	embedding embedder  // semantic search: the indexer
+	vectors   vecIndex  // … and the vectors in memory
 }
 
 func env(k, def string) string {
@@ -116,6 +118,7 @@ func newApp(cfg Config) (*App, error) {
 	a.jobs = newJobs(a)
 	a.importer = &Importer{app: a}
 	a.watcher = &Watcher{app: a}
+	a.embedding.kick = make(chan struct{}, 1)
 	a.setupLibraries()
 	n, _ := a.userCount()
 	if n == 0 {
@@ -138,6 +141,7 @@ func (a *App) run() {
 	go a.watcher.loop(ctx)
 	go a.housekeeping(ctx)
 	go a.metricsPusher(ctx)
+	go a.embedLoop(ctx)
 	go func() {
 		log.Printf("Shoebox %s listening on %s (data: %s, archive: %s)", version, a.cfg.Listen, a.cfg.DataDir, a.cfg.Archive)
 		var err error
@@ -211,6 +215,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /api/docs/{id}/file", a.member(a.handleDocFile))
 	mux.HandleFunc("DELETE /api/docs/{id}", a.member(a.handleDocDelete))
 	mux.HandleFunc("GET /api/todo", a.auth(a.handleTodo))
+	mux.HandleFunc("GET /api/semantic", a.auth(a.handleSemanticStatus))
 	mux.HandleFunc("GET /api/docs/zip", a.auth(a.handleDocsZip))
 	mux.HandleFunc("POST /api/docs/{id}/enrich", a.member(a.handleDocEnrich))
 	mux.HandleFunc("GET /api/ai/enrich", a.admin(a.handleEnrichAll))

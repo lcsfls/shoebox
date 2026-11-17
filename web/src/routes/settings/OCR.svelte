@@ -29,6 +29,16 @@
     runState();
   }
   onMount(runState);
+  // how far the search by meaning has indexed
+  let sem = $state(null);
+  let semTimer;
+  async function semState() {
+    clearTimeout(semTimer);
+    try { sem = await api.get('/api/semantic'); } catch { sem = null; }
+    if (sem?.on && sem.done < sem.total && !sem.error) semTimer = setTimeout(semState, 3000);
+  }
+  onMount(semState);
+  $effect(() => () => clearTimeout(semTimer));
   $effect(() => () => clearTimeout(poller));
 
   onMount(async () => {
@@ -54,6 +64,7 @@
       if (key) keySet = true;
       key = '';
       toast('Saved');
+      setTimeout(semState, 1500); // a new embedding model starts indexing
     } catch (err) { toast(err.message, 'error'); } finally { busy = false; }
   }
   async function clearKey() {
@@ -110,6 +121,16 @@
       <label class="field">Pages per document<input type="number" min="1" max="50" bind:value={s.ai.max_pages} /></label>
       <label class="field">Time limit per page (s)<input type="number" min="10" max="1800" bind:value={s.ai.timeout_sec} /></label>
     </div>
+    <h3 class="sub-h">Search by meaning</h3>
+    <p class="muted small">With an embedding model the search also finds what is meant, not only the words: “Fahrzeug” finds the “Kfz-Versicherung”, “Kündigung Handy” the letter from the phone company. Shoebox indexes the documents in the background.</p>
+    <div class="two">
+      <label class="field">Embedding model <span class="hint">empty = off; e.g. bge-m3</span><input type="text" bind:value={s.ai.embed_model} placeholder="bge-m3" autocomplete="off" /></label>
+      <label class="field">Its server <span class="hint">only when not the one above</span><input type="url" bind:value={s.ai.embed_url} placeholder={s.ai.base_url || 'http://gpu-box:11434/v1'} class="mono" /></label>
+    </div>
+    {#if sem?.on}
+      <p class="small" class:error={sem.error}>{sem.error ? `Indexing stopped: ${sem.error}` : sem.done < sem.total ? `Indexing: ${sem.done} of ${sem.total} documents …` : `All ${sem.total} documents are indexed.`}</p>
+      {#if sem.done < sem.total && !sem.error}<progress max={sem.total} value={sem.done}></progress>{/if}
+    {/if}
     <div class="actions">
       <button type="button" class="btn" onclick={runTest} disabled={testing || !s.ai.base_url}>{testing ? 'Testing …' : 'Test connection'}</button>
       <button class="btn primary" disabled={busy}>Save</button>
@@ -142,6 +163,7 @@
 {/if}
 
 <style>
+  .sub-h { font-size: 1rem; margin: 10px 0 -4px; }
   .langs { display: flex; flex-wrap: wrap; gap: 8px; }
   .lang { cursor: pointer; min-height: 36px; padding: 0 14px; background: var(--card); border: 1px solid var(--line); color: var(--ink-2); }
   .lang.on { background: var(--chip); border-color: var(--chip); color: var(--chip-ink); }
