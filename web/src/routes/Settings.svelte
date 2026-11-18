@@ -11,7 +11,7 @@
   import Api from './settings/Api.svelte';
   import Metrics from './settings/Metrics.svelte';
   import Updates from './settings/Updates.svelte';
-  import { user, can, canEdit } from '../lib/stores.js';
+  import { user, can, canEdit, askOn } from '../lib/stores.js';
   import Libraries from './settings/Libraries.svelte';
   import Letterhead from './settings/Letterhead.svelte';
 
@@ -27,7 +27,7 @@
 </script>
 
 <div class="page settings">
-  <div class="page-head"><h1>Settings</h1><a class="btn small mobile-only" href="/letters"><Icon name="letter" />Letters</a><a class="btn small mobile-only" href="/stats"><Icon name="chart" />Statistics</a></div>
+  <div class="page-head"><h1>Settings</h1><a class="btn small mobile-only" href="/letters"><Icon name="letter" />Letters</a><a class="btn small mobile-only" href="/stats"><Icon name="chart" />Statistics</a>{#if $askOn}<a class="btn small mobile-only" href="/ask"><Icon name="sparkle" />Ask</a>{/if}</div>
   <div class="layout">
     <nav class="sub" aria-label="Settings">
       {#each tabs as [k, label] (k)}

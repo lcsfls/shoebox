@@ -11,6 +11,7 @@
   import { tagInfo, colorFor } from '../lib/tags.js';
   import { motion } from '../lib/motion.js';
   import { remember } from '../lib/browse.js';
+  import { canShareFiles, prepare, share } from '../lib/share.js';
   import { libraries, library, toast } from '../lib/stores.js';
 
   let tree = $state([]);
@@ -129,6 +130,16 @@
   }
   function download() {
     location.href = '/api/docs/zip?ids=' + sel.join(',');
+  }
+  // sharing several: the PDFs are fetched while choosing, so the tap shares at once
+  const chosen = () => sel.map((id) => docs.find((d) => d.id === id)).filter(Boolean);
+  $effect(() => { if (selecting && canShareFiles && sel.length && sel.length <= 10) prepare(chosen()).catch(() => {}); });
+  async function shareSelected() {
+    if (sel.length > 10) { toast('Share up to 10 documents at once, or download them as a ZIP.', 'error'); return; }
+    try {
+      const r = await share(chosen());
+      if (r === 'again') toast('Ready. Tap “Share” once more.');
+    } catch (err) { toast(err.message, 'error'); }
   }
   async function moveSelected(lib) {
     moving = false;
@@ -304,6 +315,7 @@
     <button class="btn small ghost" onclick={() => (sel = sel.length === docs.length ? [] : docs.map((d) => d.id))}>{sel.length === docs.length ? 'None' : 'All'}{docs.length < total ? ` ${docs.length} shown` : ''}</button>
     <span class="grow"></span>
     <button class="btn small" onclick={download} disabled={!sel.length}><Icon name="download" />Download ZIP</button>
+    {#if canShareFiles}<button class="btn small" onclick={shareSelected} disabled={!sel.length}><Icon name="share" />Share</button>{/if}
     {#if moveTargets.length}
       <button class="btn small" onclick={() => (moving = !moving)} disabled={!sel.length} aria-expanded={moving}><Icon name="folder" />Move to …</button>
     {/if}

@@ -265,6 +265,8 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"user": u, "needs_setup": n == 0, "version": version}
 	if u != nil {
 		out["libraries"] = a.userLibraries(u)
+		ai := a.settings().AI
+		out["ask"] = ai.Enabled && ai.BaseURL != "" && ai.Model != "" // the "Ask" page
 	}
 	writeJSON(w, 200, out)
 }

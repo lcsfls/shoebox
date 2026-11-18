@@ -11,6 +11,7 @@
   import Stamps from '../components/Stamps.svelte';
   import MoveTo from '../components/MoveTo.svelte';
   import { formFromDoc, patchFromForm, dueLabel, overdue } from '../lib/docform.js';
+  import { canShareFiles, prepare, share, forget } from '../lib/share.js';
   import { stampConfig } from '../lib/stamps.js';
   import { recall, more } from '../lib/browse.js';
 
@@ -41,6 +42,16 @@
       resetForm();
       toast('The AI model read it again');
     } catch (err) { toast(err.message, 'error', 6000); } finally { asking = false; }
+  }
+  // sharing: the PDF is fetched ahead, so the tap can open the share sheet at once
+  // (again after every change: a new name, a stamp, other pages)
+  $effect(() => { if (doc && canShareFiles) { forget(doc.id); prepare([doc]).catch(() => {}); } });
+  async function shareDoc() {
+    try {
+      const r = await share([doc]);
+      if (r === 'again') toast('Ready. Tap “Share” once more.');
+      else if (r === 'downloaded') toast('This browser can’t attach files directly; the PDF was downloaded — attach it to your mail.', 'info', 6000);
+    } catch (err) { toast(err.message, 'error'); }
   }
   async function setDone(done) {
     try { doc = (await api.patch(`/api/docs/${id}`, { done })).doc; } catch (err) { toast(err.message, 'error'); }
@@ -199,6 +210,7 @@
               {#if mayEdit && aiOn}<button class="btn" onclick={askAI} disabled={asking} title="Summary, keywords, deadline and fitting tags from the AI model">{asking ? 'Reading …' : 'Ask the AI'}</button>{/if}
               <a class="btn" href="/api/docs/{doc.id}/pdf?dl=1" download><Icon name="download" />Download</a>
               <a class="btn" href="/api/docs/{doc.id}/pdf" target="_blank" rel="noopener"><Icon name="file" />PDF</a>
+              <button class="btn" onclick={shareDoc} title={canShareFiles ? 'Mail it, send it in a messenger …' : 'Download it to attach to a mail'}><Icon name="share" />Share</button>
             </div>
           </div>
         {/if}

@@ -600,6 +600,47 @@ try {
   embSrv.close();
   log('semantic search ok');
 
+  // asking the archive: a stand-in chat model that answers from the documents it is given
+  const chatSrv = http.createServer((q, res) => {
+    let b = '';
+    q.on('data', (c) => (b += c));
+    q.on('end', () => {
+      const prompt = JSON.parse(b).messages[0].content;
+      const m = prompt.match(/\[1\] "([^"]+)"/);
+      const content = m ? `Das steht in „${m[1]}“ [1].` : 'Dazu finde ich nichts.';
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ message: { content } }] }));
+    });
+  });
+  await new Promise((r) => chatSrv.listen(18004, '127.0.0.1', r));
+  await setAI({ enabled: true, base_url: 'http://127.0.0.1:18004', model: 'stand-in', embed_model: '' });
+  await d.goto(B + '/');
+  await d.getByRole('link', { name: 'Ask' }).waitFor();
+  await d.getByLabel('Search documents').fill('Was kostet der Strom?');
+  await d.getByLabel('Search documents').press('Enter');
+  await d.waitForURL((u) => u.pathname === '/ask');
+  await d.locator('.answer a.cite').first().waitFor();
+  const cited = await d.locator('.sources li a').first().getAttribute('href');
+  if (!/^\/doc\/\d+$/.test(cited || '')) problems.push('ask: no source link ' + cited);
+  await shot(d, '52-ask');
+  await setAI({ enabled: false });
+  chatSrv.close();
+  log('ask ok');
+
+  // sharing a document: the system's share sheet gets the PDF (a stand-in here)
+  const sh = await desk.newPage();
+  await sh.addInitScript(() => {
+    navigator.canShare = () => true;
+    navigator.share = async (data) => { window.__shared = data.files.map((f) => [f.name, f.size, f.type]); };
+  });
+  await sh.goto(B + '/doc/' + todoDoc.id);
+  await sh.getByRole('button', { name: 'Share' }).click();
+  await until(sh, async () => !!(await sh.evaluate(() => window.__shared)), 'the share sheet');
+  const shared = await sh.evaluate(() => window.__shared);
+  if (shared.length !== 1 || !shared[0][0].endsWith('.pdf') || shared[0][1] < 1000 || shared[0][2] !== 'application/pdf') problems.push('share: ' + JSON.stringify(shared));
+  await sh.close();
+  log('share ok');
+
   for (const tab of ['general', 'account', 'ocr', 'names', 'users', 'rules', 'updates']) {
     await d.goto(B + '/settings/' + tab);
     await d.waitForTimeout(700);

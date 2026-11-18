@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { api } from './lib/api.js';
-  import { user, counts, toasts, can, setLibraries, library, canEdit, canAdd } from './lib/stores.js';
+  import { user, counts, toasts, can, setLibraries, library, canEdit, canAdd, askOn } from './lib/stores.js';
   import LibrarySwitch from './components/LibrarySwitch.svelte';
   import DropZone from './components/DropZone.svelte';
   import MoveTray from './components/MoveTray.svelte';
@@ -16,6 +16,7 @@
   import DocView from './routes/DocView.svelte';
   import Settings from './routes/Settings.svelte';
   import Stats from './routes/Stats.svelte';
+  import Ask from './routes/Ask.svelte';
   import Letters from './routes/Letters.svelte';
   import LetterEditor from './routes/LetterEditor.svelte';
 
@@ -42,6 +43,7 @@
       needsSetup = me.needs_setup;
       version = me.version;
       setLibraries(me.libraries);
+      askOn.set(!!me.ask);
       user.set(me.user);
       if (me.user) loadTags(true);
       if (can(me.user, 'admin')) api.get('/api/update').then((u) => (updateTo = u.newer ? u.latest.tag : '')).catch(() => {});
@@ -93,11 +95,12 @@
     { href: '/', label: 'Home', icon: 'home', key: '', role: 'viewer' },
     { href: '/review', label: 'Review', icon: 'inbox', key: 'review', role: 'member' },
     { href: '/archive', label: 'Archive', icon: 'folder', key: 'archive', role: 'viewer' },
+    { href: '/ask', label: 'Ask', icon: 'sparkle', key: 'ask', role: 'viewer', wide: true, ai: true },
     { href: '/letters', label: 'Letters', icon: 'letter', key: 'letters', role: 'viewer', wide: true },
     { href: '/stats', label: 'Statistics', icon: 'chart', key: 'stats', role: 'viewer', wide: true },
     { href: '/settings', label: 'Settings', icon: 'settings', key: 'settings', role: 'viewer' },
   ];
-  let nav = $derived(allNav.filter((n) => (n.key === 'review' ? $canEdit : can($user, n.role))));
+  let nav = $derived(allNav.filter((n) => (n.ai && !$askOn ? false : n.key === 'review' ? $canEdit : can($user, n.role))));
   // the phone's tab bar keeps four tabs; letters and statistics are reached from Settings there
   let tabNav = $derived(nav.filter((n) => !n.wide));
   let fullscreen = $derived(section === 'scan');
@@ -157,6 +160,8 @@
         <Letters />
       {:else if section === 'stats'}
         <Stats />
+      {:else if section === 'ask'}
+        <Ask />
       {:else if section === 'settings'}
         <Settings tab={parts[1] || 'general'} {version} {cycleTheme} {theme} />
       {:else}

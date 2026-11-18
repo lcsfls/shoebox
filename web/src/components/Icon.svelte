@@ -15,6 +15,7 @@
     close: 'M6 6l12 12M18 6 6 18',
     expand: 'M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7',
     columns: 'M3 5h18v14H3zM9 5v14',
+    share: 'M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 3v13M7 8l5-5 5 5',
     check: 'M5 12l4 4 10-10',
     trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
     download: 'M12 4v12M7 11l5 5 5-5M4 20h16',

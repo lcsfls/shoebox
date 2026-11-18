@@ -216,6 +216,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/docs/{id}", a.member(a.handleDocDelete))
 	mux.HandleFunc("GET /api/todo", a.auth(a.handleTodo))
 	mux.HandleFunc("GET /api/semantic", a.auth(a.handleSemanticStatus))
+	mux.HandleFunc("POST /api/ask", a.auth(a.handleAsk))
 	mux.HandleFunc("GET /api/docs/zip", a.auth(a.handleDocsZip))
 	mux.HandleFunc("POST /api/docs/{id}/enrich", a.member(a.handleDocEnrich))
 	mux.HandleFunc("GET /api/ai/enrich", a.admin(a.handleEnrichAll))

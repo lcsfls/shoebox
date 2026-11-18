@@ -1,6 +1,8 @@
 import { writable, derived, get } from 'svelte/store';
 
 export const user = writable(undefined); // undefined = not known yet, null = signed out
+/** An AI model is set up: the "Ask" page is there. */
+export const askOn = writable(false);
 export const toasts = writable([]);
 export const counts = writable({ inbox: 0, busy: 0 });
 

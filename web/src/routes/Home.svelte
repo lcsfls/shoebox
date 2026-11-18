@@ -3,7 +3,7 @@
   import { api } from '../lib/api.js';
   import { uploadFiles, uploading } from '../lib/uploads.js';
   import { dragging } from '../lib/drop.js';
-  import { toast, counts, canAdd, intakeLibrary, libraries } from '../lib/stores.js';
+  import { toast, counts, canAdd, intakeLibrary, libraries, askOn } from '../lib/stores.js';
   import LibrarySwitch from '../components/LibrarySwitch.svelte';
   import { fly } from 'svelte/transition';
   import { motion } from '../lib/motion.js';
@@ -33,6 +33,8 @@
 
   function search(e) {
     e.preventDefault();
+    // a question goes to "Ask" (when an AI model is set up)
+    if ($askOn && /\?\s*$/.test(q)) { navigate('/ask?q=' + encodeURIComponent(q.trim())); return; }
     navigate('/archive' + (q.trim() ? '?q=' + encodeURIComponent(q.trim()) : ''));
   }
 
@@ -56,7 +58,7 @@
   <form class="search" role="search" onsubmit={search}>
     <Icon name="search" />
     <label class="sr-only" for="home-q">Search documents</label>
-    <input id="home-q" type="search" bind:value={q} placeholder="Search text, sender, tags …" enterkeyhint="search" />
+    <input id="home-q" type="search" bind:value={q} placeholder={$askOn ? 'Search, or ask a question?' : 'Search text, sender, tags …'} enterkeyhint="search" />
   </form>
 
   <div class="mobile-only libtop"><LibrarySwitch compact /></div>

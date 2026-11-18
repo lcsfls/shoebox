@@ -1150,3 +1150,53 @@ func TestSemanticSearch(t *testing.T) {
 		t.Errorf("status: %v", st)
 	}
 }
+
+func TestAsk(t *testing.T) {
+	a := testApp(t)
+	do, session := testHTTP(t, a)
+	anna := session("/api/setup", map[string]string{"code": a.setupCode, "username": "anna", "password": "long-password-1"})
+	if code, out, _ := do("POST", "/api/users", map[string]any{"username": "ben", "password": "long-password-2", "role": "member"}, anna, 0); code != 200 {
+		t.Fatalf("add ben: %d %v", code, out)
+	}
+	if code, _, _ := do("POST", "/api/ask", map[string]any{"question": "Wann endet der Handyvertrag?"}, anna, 0); code != 400 {
+		t.Errorf("without a model: %d", code)
+	}
+	var prompt string
+	chat := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]any
+		json.NewDecoder(r.Body).Decode(&in)
+		prompt = in["messages"].([]any)[0].(map[string]any)["content"].(string)
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{
+			"content": "<think>hm</think>Der Handyvertrag läuft bis zum 31.03.2027 [1]."}}}})
+	}))
+	defer chat.Close()
+	s := a.settings()
+	s.AI = AISettings{Enabled: true, BaseURL: chat.URL, Model: "m", TimeoutSec: 30}
+	a.saveSettings(s)
+	mobile, _ := a.insertDoc(NewDoc{Status: "filed", Path: "2025/04/v.pdf", Title: "Handyvertrag", Sender: "Funkfix", Date: "2025-04-01", LibraryID: 1,
+		Due: "2027-03-31", Action: "kündigen", Text: "Ihr Handyvertrag Tarif L läuft 24 Monate bis 31.03.2027. Kündigungsfrist drei Monate."})
+	a.insertDoc(NewDoc{Status: "filed", Path: "2026/01/s.pdf", Title: "Stromrechnung", LibraryID: 1, Text: "Strom 2400 kWh"})
+	// in ben's private Home: anna's question must not reach it
+	a.insertDoc(NewDoc{Status: "filed", Path: "x.pdf", Title: "Bens Handyvertrag", LibraryID: a.homeLib(2), Text: "Handyvertrag Geheimtarif"})
+
+	code, out, _ := do("POST", "/api/ask", map[string]any{"question": "Wann endet der Handyvertrag?"}, anna, 0)
+	if code != 200 {
+		t.Fatalf("ask: %d %v", code, out)
+	}
+	if !strings.Contains(prompt, `"Handyvertrag", from Funkfix`) || !strings.Contains(prompt, "deadline 2027-03-31 (kündigen)") || !strings.Contains(prompt, "Wann endet der Handyvertrag?") {
+		t.Errorf("prompt:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Geheimtarif") {
+		t.Error("a document from someone else's Home reached the model")
+	}
+	src := out["sources"].([]any)
+	if out["answer"] != "Der Handyvertrag läuft bis zum 31.03.2027 [1]." || len(src) == 0 || int64(src[0].(map[string]any)["id"].(float64)) != mobile {
+		t.Errorf("answer: %v", out)
+	}
+	// nothing about it: no model call, a plain answer
+	prompt = ""
+	_, out, _ = do("POST", "/api/ask", map[string]any{"question": "Zahnarztrechnung Implantat?"}, anna, 0)
+	if prompt != "" || len(out["sources"].([]any)) != 0 {
+		t.Errorf("nothing found, but: %v (prompt %q)", out, prompt)
+	}
+}
